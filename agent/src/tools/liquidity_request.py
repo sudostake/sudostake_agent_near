@@ -193,7 +193,7 @@ def view_pending_liquidity_requests() -> None:
             
             amount = (Decimal(lr["amount"]) / Decimal(10 ** decimals)).quantize(Decimal(1))
             interest = (Decimal(lr["interest"]) / Decimal(10 ** decimals)).quantize(Decimal(1))
-            collateral = Decimal(lr["collateral"]) / YOCTO_FACTOR
+            collateral = (Decimal(lr["collateral"]) / YOCTO_FACTOR).quantize(Decimal(1))
             duration_days = lr["duration"] // 86400
             
             message += (
@@ -202,7 +202,7 @@ def view_pending_liquidity_requests() -> None:
                 f"  • Amount: `{amount}` {symbol}\n"
                 f"  • Interest: `{interest}` {symbol}\n"
                 f"  • Duration: `{duration_days} days`\n"
-                f"  • Collateral: `{collateral.normalize()}` NEAR\n\n"
+                f"  • Collateral: `{collateral}` NEAR\n\n"
             )
         
         env.add_reply(message)
