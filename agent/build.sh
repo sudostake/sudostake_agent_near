@@ -25,6 +25,7 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 SRC_DIR="$REPO_ROOT/agent/src"           # editable source
 META_SRC="$REPO_ROOT/agent/metadata.json"
 README_SRC="$REPO_ROOT/agent/README.md"
+CONSTANT_SRC="$REPO_ROOT/agent/constants.py"
 # -----------------------------------------------------------------------------
 
 # ---------- 2. DISCOVER LATEST VERSION IN REGISTRY ---------------------------
@@ -72,6 +73,11 @@ if [[ -f "$README_SRC" ]]; then
   cp "$README_SRC" "$DEST/README.md"
 fi
 # -----------------------------------------------------------------------------
+
+# Include the agent-level constants.py so the agent can ingest it.
+if [[ -f "$CONSTANT_SRC" ]]; then
+  cp "$CONSTANT_SRC" "$DEST/constants.py"
+fi
 
 # ---------- 5. STAMP metadata.json WITH NEW VERSION --------------------------
 command -v jq >/dev/null || { echo "jq required"; exit 1; }

@@ -76,7 +76,16 @@ def process_claims(vault_id: str) -> None:
     """
     Process claims for the given vault.
 
-    This function is a placeholder and should be implemented to handle
-    claim processing logic.
+    This function should:
+    - Call the appropriate claim method on the vault contract (e.g., "process_claims" or similar).
+    - Handle transaction results, including contract panics and failed events.
+    - Index the updated vault state to Firebase.
+    - Reply with a success or error message, including explorer links.
+
+    Considerations:
+    - What arguments (if any) does the contract method require?
+    - Are there specific events or logs to check for claim failures?
+    - Should this function support batch processing or only single vaults?
+    - What are the possible error cases (e.g., already claimed, not eligible)?
     """
     raise NotImplementedError("process_claims is not yet implemented.")

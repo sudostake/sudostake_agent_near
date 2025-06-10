@@ -3,8 +3,10 @@ import os
 import pytest
 from unittest.mock import MagicMock
 
-# Make src/ importable
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+# Make both the project-root *and* src/ importable
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, ROOT_DIR)
+sys.path.insert(0, os.path.join(ROOT_DIR, "src"))  
 
 from tools import ( # type: ignore[import]
     context,
