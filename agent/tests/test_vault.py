@@ -2,11 +2,13 @@ import sys
 import os
 import pytest
 import requests
+import time as _time
 
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime
 from test_utils import make_dummy_resp, mock_setup
+from constants import NANOSECONDS_PER_SECOND
 
 # Make src/ importable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
@@ -36,7 +38,15 @@ def minimal_vault_state():
         "current_epoch": 1000,
     }
 
-    
+
+def _freeze_time(monkeypatch, dt: datetime):
+    """
+    Helper: monkey-patch time.time() so vault_state sees a predictable 'now'.
+    """
+    epoch_secs = int(dt.timestamp())
+    monkeypatch.setattr(_time, "time", lambda: epoch_secs)
+
+
 def with_liquidity(state):
     """Inject a liquidity request into vault state."""
     
@@ -46,7 +56,7 @@ def with_liquidity(state):
         "interest": str(int(Decimal("2.50") * USDC_FACTOR)),
         "collateral": str(int(Decimal("5.0") * YOCTO_FACTOR)),
         "duration": 86400,
-        "created_at": str(int(datetime(2024, 1, 1, 12, 0).timestamp() * 1_000_000_000)),
+        "created_at": str(int(datetime(2024, 1, 1, 12, 0).timestamp() * NANOSECONDS_PER_SECOND)),
     }
     return state
 
@@ -56,7 +66,7 @@ def with_offer(state):
     
     state["accepted_offer"] = {
         "lender": "bob.testnet",
-        "accepted_at": int(datetime(2024, 1, 2, 14, 0).timestamp() * 1_000_000_000),
+        "accepted_at": int(datetime(2024, 1, 2, 14, 0).timestamp() * NANOSECONDS_PER_SECOND),
     }
     return state
 
@@ -138,13 +148,14 @@ def test_vault_state_with_offer(mock_setup, minimal_vault_state):
     """
     
     (dummy_env, mock_near) = mock_setup
-    mock_near.view = AsyncMock(return_value=MagicMock(result=with_offer(minimal_vault_state)))
+    mock_near.view = AsyncMock(return_value=MagicMock(result=with_liquidity(with_offer(minimal_vault_state))))
     
     vault.vault_state("vault-2.factory.testnet")
     
     replies = [call[0][0] for call in dummy_env.add_reply.call_args_list]
     base = replies[0]
-    offer = replies[1]
+    # liquidity = replies[1]
+    offer = replies[2]
     
     assert "vault-2.factory.testnet" in base
     assert "Accepted Offer" in base
@@ -182,7 +193,53 @@ def test_vault_state_with_liquidation(mock_setup, minimal_vault_state):
     assert "**⚠️ Liquidation Summary**" in liquidation
     assert "Liquidated" in liquidation
     assert "Outstanding Debt" in liquidation
+    
 
+def test_vault_state_offer_expiring(monkeypatch, mock_setup, minimal_vault_state):
+    """
+    When the accepted offer has NOT yet expired:
+      • “Expiring In” row is present
+      • “Expired” status is NOT present
+    """
+    
+    # Accepted at 2024-01-02 14:00 UTC, duration = 1 day (see with_* helpers)
+    # Freeze time to 2024-01-02 18:00 UTC → 20 h remain.
+    _freeze_time(monkeypatch, datetime(2024, 1, 2, 18, 0))
+    
+    (dummy_env, mock_near) = mock_setup
+    state = with_liquidity(with_offer(minimal_vault_state))
+    mock_near.view = AsyncMock(return_value=MagicMock(result=state))
+    
+    vault.vault_state("vault-expiring.factory.testnet")
+    
+    combined = "\n".join(call[0][0] for call in dummy_env.add_reply.call_args_list)
+    assert "**🤝 Accepted Offer Summary**" in combined
+    assert "Expiring In" in combined
+    assert "Expired" not in combined
+    
+    
+def test_vault_state_offer_expired(monkeypatch, mock_setup, minimal_vault_state):
+    """
+    After the expiry deadline passes:
+      • “Status | Expired” row is present
+      • “Expiring In” row is NOT present
+    """
+    
+    # Accepted at 2024-01-02 14:00 UTC, +1 day = 2024-01-03 14:00 UTC.
+    # Freeze time to 2024-01-04 00:00 UTC (10 h past expiry).
+    _freeze_time(monkeypatch, datetime(2024, 1, 4, 0, 0))
+    
+    (dummy_env, mock_near) = mock_setup
+    state = with_liquidity(with_offer(minimal_vault_state))
+    mock_near.view = AsyncMock(return_value=MagicMock(result=state))
+    
+    vault.vault_state("vault-expired.factory.testnet")
+    
+    combined = "\n".join(call[0][0] for call in dummy_env.add_reply.call_args_list)
+    assert "**🤝 Accepted Offer Summary**" in combined
+    assert "Status" in combined and "Expired" in combined
+    assert "Expiring In" not in combined
+    
 
 # ───────────────── view_user_vaults tests ─────────────────
 def test_view_user_vaults_success(monkeypatch, mock_setup):
