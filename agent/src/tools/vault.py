@@ -1,11 +1,13 @@
 import requests
 import textwrap
+import time
 
 from decimal import Decimal
 from typing import List, cast
 from datetime import timedelta
 from logging import Logger
 from .context import get_env, get_near, get_logger
+from constants import NANOSECONDS_PER_SECOND
 from helpers import (
     get_factory_contract,
     USDC_FACTOR,
@@ -29,6 +31,15 @@ def format_duration(seconds: int) -> str:
     if hours: parts.append(f"{hours}h")
     if minutes: parts.append(f"{minutes}m")
     return " ".join(parts) or "0m"
+
+def format_remaining(seconds_left: int) -> str:
+    """
+    Turn a positive number of seconds into “Xd Yh Zm”.
+    Always shows at least minutes; caps at 0m when expired.
+    """
+    if seconds_left <= 0:
+        return "0m"
+    return format_duration(seconds_left)
 
 
 def show_help_menu() -> None:
@@ -135,15 +146,29 @@ def vault_state(vault_id: str) -> None:
         # Add accepted offer summary if present
         accepted = state.get("accepted_offer")
         if accepted:
-            lender = accepted["lender"]
-            accepted_at = format_near_timestamp(int(accepted["accepted_at"]))
+            lender       = accepted["lender"]
+            accepted_ns  = int(accepted["accepted_at"])
+            accepted_at  = format_near_timestamp(accepted_ns)
+            
+            req = state.get("liquidity_request")
+            expiry_row = "| Status        | `Expired`           |\n"
+            
+            duration_s  = int(req["duration"])
+            expiry_ns   = accepted_ns + duration_s * NANOSECONDS_PER_SECOND
+            secs_left  = int(expiry_ns / NANOSECONDS_PER_SECOND) - int(time.time())
+            
+            if secs_left > 0:
+                expiry_row = (
+                    f"| Expiring In   | `{format_remaining(secs_left)}` |\n"
+                )
             
             env.add_reply(
                 "**🤝 Accepted Offer Summary**\n\n"
                 "| Field        | Value              |\n"
                 "|--------------|--------------------|\n"
                 f"| Lender      | `{lender}`         |\n"
-                f"| Accepted At | `{accepted_at}`    |"
+                f"| Accepted At | `{accepted_at}`    |\n"
+                f"{expiry_row}"
             )
         
         # Add liquidation summary if present
