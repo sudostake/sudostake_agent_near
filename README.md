@@ -32,8 +32,17 @@ chmod +x ./agent/build.sh
 ## Run the agent locally in interactive mode
 ```
 # Interact as a vault owner
-source ~/.near_vault_owner_profile && sudo -E nearai agent interactive --local
+source ~/.near_vault_owner_profile && nearai agent interactive --local
 
 # Interact as a usdc lender
-source ~/.near_vault_lender_profile && sudo -E nearai agent interactive --local
+source ~/.near_vault_lender_profile && nearai agent interactive --local
+```
+
+&nbsp;
+
+## Required environment variables
+```
+export NEAR_NETWORK=<testnet>
+export NEAR_ACCOUNT_ID=<account.testnet>
+export NEAR_PRIVATE_KEY=<ed25519:(key)>
 ```
