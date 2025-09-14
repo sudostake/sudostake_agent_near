@@ -1,7 +1,7 @@
-from py_near.account import Account
 from nearai.agents.environment import Environment
 from nearai.agents.models.tool_definition import MCPTool
-from .context import set_context
+from .context import set_context, NearClient
+from typing import List
 from . import (
     balance,
     docs,
@@ -16,16 +16,16 @@ from . import (
 )
 
 # Register all tools here
-def register_tools(env: Environment, near: Account) -> list[MCPTool]:
+def register_tools(env: Environment, near: NearClient) -> list[MCPTool]:
     """
     Register all SudoStake agent tools with the environment.
     Called from `tools/__init__.py`.
     """
-    
+
     set_context(env, near)
     registry = env.get_tool_registry()
-    registered_tools = []
-    
+    registered_tools: List[str] = []
+
     for tool in (
         vault.show_help_menu,
         vault.vault_state,
@@ -50,7 +50,7 @@ def register_tools(env: Environment, near: Account) -> list[MCPTool]:
     ):
         registry.register_tool(tool)
         registered_tools.append(tool.__name__)
-    
+
     return [
         registry.get_tool_definition(name)
         for name in registered_tools
