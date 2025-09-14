@@ -70,8 +70,9 @@ def init_vector_store() -> None:
             break
         
         if status.status == "expired":
-            raise RuntimeError(f"Vector-store {vs.id} failed to build: "
-                               f"{status.last_error}")
+            raise RuntimeError(
+                f"Vector-store {vs.id} failed to build (status=expired)"
+            )
         
         time.sleep(POLL_INTERVAL_S)
         

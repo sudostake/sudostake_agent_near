@@ -1,7 +1,14 @@
 import os
+from typing import Dict, List, TypedDict
+
+class TokenMeta(TypedDict):
+    symbol: str
+    contract: str
+    decimals: int
+    aliases: List[str]
 
 # Canonical token registry per network
-TOKEN_REGISTRY = {
+TOKEN_REGISTRY: Dict[str, Dict[str, TokenMeta]] = {
      "testnet": {
          "usdc": {
             "symbol": "USDC",
@@ -20,7 +27,7 @@ TOKEN_REGISTRY = {
     },
 }
 
-def get_token_metadata(token_key: str) -> dict:
+def get_token_metadata(token_key: str) -> TokenMeta:
     """
     Resolve canonical metadata for a whitelisted token using aliases.
     """
@@ -41,7 +48,7 @@ def get_token_metadata(token_key: str) -> dict:
     raise ValueError(f"Unsupported token '{token_key}' on network '{network}'")
 
 
-def get_token_metadata_by_contract(contract_id: str) -> dict:
+def get_token_metadata_by_contract(contract_id: str) -> TokenMeta:
     """
     Resolve token metadata by contract ID.
     """
