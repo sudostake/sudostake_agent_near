@@ -3,12 +3,10 @@ import asyncio
 import requests
 
 from nearai.agents.environment import Environment
-from typing import  Awaitable, TypeVar, Optional
-from nearai.agents.environment import Environment
-from py_near.account import Account
+from typing import Awaitable, TypeVar, Optional, Any, List, Dict, cast
+from tools.context import NearClient
 from decimal import Decimal
 from datetime import datetime, timezone
-
 from constants import NANOSECONDS_PER_SECOND
 
 # Type‐var for our coroutine runner
@@ -40,8 +38,11 @@ USDC_CONTRACTS = {
     "testnet": "usdc.tkn.primitives.testnet",
 }
 
-# Firebase functions vaults API
-_FIREBASE_VAULTS_API = "https://us-central1-sudostake.cloudfunctions.net" 
+# Backend API base (migrated from Firebase Functions to Vercel)
+# Reads optional env var SUDOSTAKE_WEB_BASE_URL, falling back to the
+# provided Vercel deployment base and ensuring we target Next.js /api routes.
+_web_base = os.getenv("SUDOSTAKE_WEB_BASE_URL", "http://v0-sudo-stake-near-web.vercel.app")
+_FIREBASE_VAULTS_API = _web_base.rstrip("/") if _web_base.rstrip("/").endswith("/api") else _web_base.rstrip("/") + "/api"
 
 # Define current vault_minting_fee
 # TODO Later we can dynamically get this from the factory contract itself
@@ -54,74 +55,90 @@ YOCTO_FACTOR: Decimal = Decimal("1e24")
 USDC_FACTOR: Decimal = Decimal("1e6")
 
 _loop: Optional[asyncio.AbstractEventLoop] = None
-_SIGNING_MODE: Optional[str] = None       # "headless", "wallet", or None
-_ACCOUNT_ID: Optional[str] = None         # the user’s account when known
+"""Mutable module state for the current signing context."""
+_signing_mode: Optional[str] = None       # "headless", "wallet", or None
+_account_id: Optional[str] = None         # the user’s account when known
 _VECTOR_STORE_ID: str = "vs_ecd9ba192396493984d66feb" # default vector store ID
 
 
 # expose handy getters
-def signing_mode()    -> Optional[str]: return _SIGNING_MODE
-def account_id()      -> Optional[str]: return _ACCOUNT_ID
-def vector_store_id() -> Optional[str]: return _VECTOR_STORE_ID
+def signing_mode()    -> Optional[str]: return _signing_mode
+def account_id()      -> Optional[str]: return _account_id
+def vector_store_id() -> str: return _VECTOR_STORE_ID
 def firebase_vaults_api() -> str:       return _FIREBASE_VAULTS_API
 # ──────────────────────────────────────────────────────────────
 
-def usdc_contract()   -> str:
+def usdc_contract() -> str:
     """
     Return the USDC contract address for the current NEAR_NETWORK.
-    
+
     We don't have to check for the environment variable here,
     as this function is only called after the NEAR_NETWORK is set
     in the environment.
     """
     network = os.getenv("NEAR_NETWORK")
+    if network not in USDC_CONTRACTS:
+        raise RuntimeError(
+            "NEAR_NETWORK must be set to 'mainnet' or 'testnet' (got: "
+            f"{network or 'unset'})"
+        )
     return USDC_CONTRACTS[network]
 
 
-def fetch_usdc_balance(near: Account, account_id: str) -> Decimal:
+def fetch_usdc_balance(near: NearClient, account_id: str) -> Decimal:
     """
     Retrieve and return the USDC balance (as a Decimal) for the given account ID.
-    
+
     Raises:
         ValueError: if the view call fails or no result is returned.
     """
-    
+
     resp = run_coroutine(
         near.view(usdc_contract(), "ft_balance_of", {"account_id": account_id})
     )
-    
+
     if not resp or not hasattr(resp, "result") or resp.result is None:
         raise ValueError(f"❌ No USDC balance returned for `{account_id}`.")
-    
+
     usdc_raw = int(resp.result)
     return Decimal(usdc_raw) / USDC_FACTOR
-    
+
 
 def get_explorer_url() -> str:
     """
     Return the correct NEAR Explorer URL based on NEAR_NETWORK.
     """
     network = os.getenv("NEAR_NETWORK")
-    return _EXPLORER_URL.get(network)
+    if network not in _EXPLORER_URL:
+        raise RuntimeError(
+            "NEAR_NETWORK must be set to 'mainnet' or 'testnet' (got: "
+            f"{network or 'unset'})"
+        )
+    return _EXPLORER_URL[network]
 
 
 def get_factory_contract() -> str:
     """
     Return the factory contract address for the current NEAR_NETWORK.
-    
+
     We don't have to check for the environment variable here,
     as this function is only called after the NEAR_NETWORK is set
     in the environment.
     """
     network = os.getenv("NEAR_NETWORK")
+    if network not in _FACTORY_CONTRACTS:
+        raise RuntimeError(
+            "NEAR_NETWORK must be set to 'mainnet' or 'testnet' (got: "
+            f"{network or 'unset'})"
+        )
     return _FACTORY_CONTRACTS[network]
 
 
 def ensure_loop() -> asyncio.AbstractEventLoop:
     """Return a long-lived event loop, creating it once if necessary."""
-    
+
     global _loop
-    
+
     if _loop is None or _loop.is_closed():
         _loop = asyncio.new_event_loop()
         asyncio.set_event_loop(_loop)
@@ -135,19 +152,19 @@ def run_coroutine(coroutine: Awaitable[T]) -> T:
     return ensure_loop().run_until_complete(coroutine)
 
 
-def _set_state(mode: Optional[str], acct: Optional[str]):
-    global _SIGNING_MODE, _ACCOUNT_ID
-    _SIGNING_MODE, _ACCOUNT_ID = mode, acct
-    
-    
-def init_near(env: Environment) -> Account:
+def _set_state(mode: Optional[str], acct: Optional[str]) -> None:
+    global _signing_mode, _account_id
+    _signing_mode, _account_id = mode, acct
+
+
+def init_near(env: Environment) -> NearClient:
     """
     Create a py-near Account.
 
     * headless  - secret key in env   → signing_mode = 'headless'
     * view-only - no key / wallet     → signing_mode None
     """
-    
+
     # Check for required NEAR_NETWORK env variable
     network = os.getenv("NEAR_NETWORK")
     if network not in _DEFAULT_RPC:
@@ -155,33 +172,34 @@ def init_near(env: Environment) -> Account:
             "NEAR_NETWORK must be set to 'mainnet' or 'testnet' (got: "
             f"{network or 'unset'})"
         )
-    
+
     account_id  = os.getenv("NEAR_ACCOUNT_ID")
     private_key = os.getenv("NEAR_PRIVATE_KEY")
-    rpc_addr    = _DEFAULT_RPC.get(network)
-    
+    rpc_addr    = _DEFAULT_RPC[network]
+
     # For headless signing, we need both account_id and private_key
     if account_id and private_key:
-        near = env.set_near(
+        near = cast(NearClient, env.set_near(
             account_id=account_id,
             private_key=private_key,
             rpc_addr=rpc_addr
-        )
+        ))
         _set_state(mode="headless", acct=account_id)
         return near
-    
+
     # view-only fallback
     signer = getattr(env, "signer_account_id", None)
     _set_state(mode=None, acct=signer)
-    near = env.set_near(rpc_addr=rpc_addr)
+    near = cast(NearClient, env.set_near(rpc_addr=rpc_addr))
     return near
 
 
-def get_failure_message_from_tx_status(status: dict) -> dict:
+def get_failure_message_from_tx_status(status: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     failure = status.get("Failure")
     if failure:
         action_err = failure.get("ActionError", {})
-        return action_err.get("kind", {})
+        return cast(Dict[str, Any], action_err.get("kind", {}))
+    return None
 
 
 def log_contains_event(logs: list[str], event_name: str) -> bool:
@@ -189,36 +207,46 @@ def log_contains_event(logs: list[str], event_name: str) -> bool:
     Returns True if any log contains the given event name.
     Supports plain or EVENT_JSON logs.
     """
-    
+
     for log in logs:
         if event_name in log:
             return True
     return False
 
 
-def top_doc_chunks(env: Environment, vs_id: str, user_query: str, k: int = 6):
+def top_doc_chunks(env: Environment, vs_id: str, user_query: str, k: int = 6) -> List[Dict[str, Any]]:
     """
     Return the top-k vector-store chunks for *user_query*.
     Does not touch env.add_reply(); safe for reuse.
     """
 
     results = env.query_vector_store(vs_id, user_query)
-    return results[:k]                      # trim noise
+    return results[:k]  # trim noise
 
 
-def index_vault_to_firebase(vault_id: str) -> None:
+def index_vault_to_firebase(vault_id: str, tx_hash: str, factory_id: Optional[str] = None) -> None:
     """
-    Index the given vault to Firebase.
+    Index the given vault via the backend API.
 
     Raises:
         Exception: If the request fails or Firebase responds with an error.
     """
-    
+
+    # Resolve factory if not explicitly provided
+    if factory_id is None:
+        factory_id = get_factory_contract()
+
     idx_url = f"{_FIREBASE_VAULTS_API}/index_vault"
-    
+
+    payload = {
+        "factory_id": factory_id,
+        "vault": vault_id,
+        "tx_hash": tx_hash,
+    }
+
     response = requests.post(
         idx_url,
-        json={"vault": vault_id},
+        json=payload,
         timeout=10,
         headers={"Content-Type": "application/json"},
     )
@@ -231,7 +259,11 @@ def format_near_timestamp(ns: int) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def format_firestore_timestamp(ts: dict) -> str:
-    """Convert Firestore timestamp dict to 'YYYY-MM-DD HH:MM UTC'."""
+from typing import Union
+
+def format_firestore_timestamp(ts: Union[Dict[str, Any], str]) -> str:
+    """Convert Firestore timestamp (dict or string) to 'YYYY-MM-DD HH:MM UTC'."""
+    if isinstance(ts, str):
+        return ts
     dt = datetime.fromtimestamp(ts["_seconds"], tz=timezone.utc)
     return dt.strftime("%Y-%m-%d %H:%M UTC")
