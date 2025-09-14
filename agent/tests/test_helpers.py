@@ -1,18 +1,12 @@
-import sys
-import os
-import pytest
-import time
 import asyncio
+import time
+from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 import requests
 
-from unittest.mock import MagicMock
-from unittest.mock import AsyncMock
-from decimal import Decimal
-
-# Make src/ importable
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
-
-import helpers  # type: ignore
+import helpers
 
 
 # ─────────────────────────── async util ───────────────────────────
@@ -24,12 +18,12 @@ async def async_add(a, b):
 @pytest.fixture(autouse=True)
 def reset_globals(monkeypatch):
     """Ensure module-level globals are clean between tests."""
-    
+
     helpers._VECTOR_STORE_ID = None
-    helpers._SIGNING_MODE = None
-    helpers._ACCOUNT_ID = None
+    helpers._signing_mode = None
+    helpers._account_id = None
     yield
-    
+
 
 @pytest.fixture(autouse=True)
 def fast_clock(monkeypatch):
@@ -41,7 +35,7 @@ def fast_clock(monkeypatch):
 def test_get_explorer_url_mainnet(monkeypatch):
     monkeypatch.setenv("NEAR_NETWORK", "mainnet")
     assert helpers.get_explorer_url() == "https://explorer.near.org"
-    
+
 def test_get_explorer_url_testnet(monkeypatch):
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
     assert helpers.get_explorer_url() == "https://explorer.testnet.near.org"
@@ -51,15 +45,14 @@ def test_get_explorer_url_testnet(monkeypatch):
 def test_ensure_loop_returns_event_loop():
     loop1 = helpers.ensure_loop()
     loop2 = helpers.ensure_loop()
-    
+
     assert loop1 is loop2  # ✅ Should return same instance
     assert loop1.is_running() is False  # ✅ It's not running yet
     assert hasattr(loop1, "run_until_complete")  # ✅ Sanity check
-    
+
 def test_run_coroutine_executes_async_function():
     result = helpers.run_coroutine(async_add(2, 3))
     assert result == 5
-    
     
 # ----------------------------------------------------------------------
 # init_near happy-path: headless (creds + network)
@@ -177,12 +170,17 @@ def test_index_vault_to_firebase_success(monkeypatch):
             def raise_for_status(self): pass
         return FakeResp()
     
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
     monkeypatch.setattr(helpers.requests, "post", fake_post)
     
-    helpers.index_vault_to_firebase("vault-123.factory.testnet")
+    helpers.index_vault_to_firebase("vault-123.factory.testnet", "txabc")
     
     assert captured["url"].endswith("/index_vault")
-    assert captured["json"] == {"vault": "vault-123.factory.testnet"}
+    assert captured["json"] == {
+        "factory_id": "nzaza.testnet",
+        "vault": "vault-123.factory.testnet",
+        "tx_hash": "txabc",
+    }
     assert captured["headers"]["Content-Type"] == "application/json"
 
 
@@ -196,9 +194,8 @@ def test_index_vault_to_firebase_failure(monkeypatch):
     def fake_post(*args, **kwargs):
         return FakeResp()
     
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
     monkeypatch.setattr(helpers.requests, "post", fake_post)
     
     with pytest.raises(requests.HTTPError, match="Mocked 500 error"):
-        helpers.index_vault_to_firebase("vault-999.factory.testnet")
-
-
+        helpers.index_vault_to_firebase("vault-999.factory.testnet", "tx1")

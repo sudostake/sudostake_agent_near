@@ -1,15 +1,7 @@
-import sys
-import os
 from unittest.mock import AsyncMock, MagicMock
-from test_utils import make_dummy_resp, mock_setup
-
-# Make src/ importable
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
-
-import helpers # type: ignore
-from tools import ( # type: ignore[import]
-    liquidity_request,
-)
+import helpers
+from test_utils import make_dummy_resp
+from tools import liquidity_request
 
 
 def test_request_liquidity_success(monkeypatch, mock_setup):
@@ -23,7 +15,7 @@ def test_request_liquidity_success(monkeypatch, mock_setup):
         status={"SuccessValue": ""},
     ))
     
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless")
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
     
     liquidity_request.request_liquidity(
@@ -41,13 +33,12 @@ def test_request_liquidity_success(monkeypatch, mock_setup):
     assert "vault-0.factory.testnet" in msg
     assert "tx123" in msg
 
-
 def test_request_liquidity_fails_if_not_headless(monkeypatch, mock_setup):
     """Should reject request if not in headless signing mode."""
     
     env, _ = mock_setup
     
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "interactive")
+    monkeypatch.setattr(helpers, "_signing_mode", "interactive")
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
     
     liquidity_request.request_liquidity(
@@ -62,7 +53,6 @@ def test_request_liquidity_fails_if_not_headless(monkeypatch, mock_setup):
     env.add_reply.assert_called_once()
     msg = env.add_reply.call_args[0][0]
     assert "No signing keys available" in msg
-
 
 def test_request_liquidity_contract_panic(monkeypatch, mock_setup):
     """Should detect contract panic and return a failure message."""
@@ -85,7 +75,7 @@ def test_request_liquidity_contract_panic(monkeypatch, mock_setup):
         }
     ))
     
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless")
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
     
     liquidity_request.request_liquidity(
@@ -103,7 +93,6 @@ def test_request_liquidity_contract_panic(monkeypatch, mock_setup):
     assert "contract panic" in msg
     assert "A request is already open" in msg
 
-
 def test_request_liquidity_insufficient_stake_log(monkeypatch, mock_setup):
     """Should detect soft failure from logs and return a helpful error."""
     
@@ -117,7 +106,7 @@ def test_request_liquidity_insufficient_stake_log(monkeypatch, mock_setup):
         status={"SuccessValue": ""},
     ))
     
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless")
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
     
     liquidity_request.request_liquidity(
@@ -140,7 +129,7 @@ def test_request_liquidity_invalid_token_denom(monkeypatch, mock_setup):
     
     env, _ = mock_setup  # near is not needed here
     
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless")
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
     
     liquidity_request.request_liquidity(
@@ -169,10 +158,10 @@ def test_request_liquidity_indexing_failure(monkeypatch, mock_setup):
         status={"SuccessValue": ""},
     ))
     
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless")
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
     
-    def raise_index_error(vault_id):
+    def raise_index_error(vault_id, tx_hash):
         raise Exception("Firebase is down")
     
     monkeypatch.setattr(helpers, "index_vault_to_firebase", raise_index_error)
@@ -335,9 +324,12 @@ def test_accept_liquidity_request_success(monkeypatch, mock_setup):
     # Patch Firebase indexer
     monkeypatch.setattr(
         liquidity_request, "index_vault_to_firebase",
-        lambda vault_id: None
+        lambda vault_id, tx_hash: None
     )
     
+    # Ensure network set for explorer URL generation
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+
     # Call the tool
     liquidity_request.accept_liquidity_request(
         vault_id="vault-0.factory.testnet"
@@ -489,7 +481,7 @@ def test_view_lender_positions_not_headless(monkeypatch, mock_setup):
     """Should show warning if not using headless signing mode."""
     
     env, _ = mock_setup
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "interactive")
+    monkeypatch.setattr(helpers, "_signing_mode", "interactive")
     
     liquidity_request.view_lender_positions()
     
@@ -504,7 +496,7 @@ def test_view_lender_positions_empty(monkeypatch, mock_setup):
     env, _ = mock_setup
     
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless")
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     monkeypatch.setattr(helpers, "account_id", lambda: "bob.testnet")
     monkeypatch.setattr(helpers, "get_factory_contract", lambda: "factory.testnet")
     
@@ -526,7 +518,7 @@ def test_view_lender_positions_success(monkeypatch, mock_setup):
     env, _ = mock_setup
     
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless")
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     monkeypatch.setattr(liquidity_request, "account_id", lambda: "bob.testnet")
     monkeypatch.setattr(helpers, "get_factory_contract", lambda: "factory.testnet")
     
@@ -580,7 +572,7 @@ def test_view_lender_positions_invalid_json(monkeypatch, mock_setup):
     env, _ = mock_setup
 
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless")
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     monkeypatch.setattr(helpers, "account_id", lambda: "bob.testnet")
     monkeypatch.setattr(helpers, "get_factory_contract", lambda: "factory.testnet")
     
