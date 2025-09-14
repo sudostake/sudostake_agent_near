@@ -5,7 +5,7 @@ from helpers import ensure_loop, init_near, vector_store_id, top_doc_chunks
 from tools import register_tools
 
 
-def run(env: Environment):
+def run(env: Environment) -> None:
     """
     Entry-point invoked by NEAR AI Agents Hub.
 
@@ -29,28 +29,26 @@ def run(env: Environment):
     
     # Query the Vector Store
     messages = env.list_messages()
-    user_query = messages[-1]["content"]
+    user_query = messages[-1]["content"] if messages else ""
     docs = top_doc_chunks(env, vector_store_id(), user_query)
 
-    # Init prompt list with system message
+    # Assemble prompt: system, prior history, docs, latest user
+    history = messages[:-1] if len(messages) > 1 else []
+    latest = [messages[-1]] if messages else []
+
     prompt_list = [
         {
-            "role": "user",
-            "content": user_query,
+            "role": "system",
+            "content": "You are SudoStake's AI Agent. "
+                       "Help users inspect or manage their vaults on NEAR.",
         },
+        *history,
         {
             "role": "documentation",
             "content": json.dumps(docs),
         },
-        {
-            "role": "system",
-            "content": "You are SudoStake's AI Agent. "
-                    "Help users inspect or manage their vaults on NEAR."
-        }
+        *latest,
     ]
-    
-    # Append any prior conversation history supplied by the Hub
-    prompt_list.extend(messages)
 
     # Begin tool-driven interaction
     env.completions_and_run_tools(
