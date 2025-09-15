@@ -1,14 +1,6 @@
-import sys
-import os
-import pytest
-
 from unittest.mock import MagicMock
-
-
-# Make jobs/ importable
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../jobs')))
-
-import init_vector_store_job # type: ignore
+import pytest
+import init_vector_store_job
 
 @pytest.fixture
 def _openai_client_mock(monkeypatch):

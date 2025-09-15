@@ -2,11 +2,10 @@ import json
 import requests
 
 from decimal import Decimal
+from typing import List, TypedDict, cast, Any, Dict, Literal
 from logging import Logger
-from typing import List, TypedDict
 from .context import get_env, get_near, get_logger
-from token_registry import get_token_metadata, get_token_metadata_by_contract
-from py_near.models import TransactionResult
+from token_registry import get_token_metadata, get_token_metadata_by_contract, TokenMeta
 from helpers import (
     YOCTO_FACTOR,
     get_factory_contract,
@@ -21,6 +20,8 @@ from helpers import (
     format_firestore_timestamp
 )
 
+from py_near.models import TransactionResult
+
 # Define the structure of the liquidity request
 class LiquidityRequest(TypedDict):
     token: str
@@ -32,7 +33,7 @@ class LiquidityRequest(TypedDict):
 # Define the structure of an accepted offer
 class AcceptedOffer(TypedDict):
     lender: str
-    accepted_at: str
+    accepted_at: dict[str, object]
 
 # Define the structure of a pending liquidity request
 class PendingRequest(TypedDict):
@@ -48,6 +49,15 @@ class ActiveRequest(TypedDict):
     state: str
     liquidity_request: LiquidityRequest
     accepted_offer: AcceptedOffer
+
+# Payload schema for accepting a liquidity request via ft_transfer_call
+class AcceptLiquidityMsg(TypedDict):
+    action: Literal["AcceptLiquidityRequest"]
+    token: str
+    amount: str
+    interest: str
+    collateral: str
+    duration: int
     
 
 def request_liquidity(
@@ -84,7 +94,7 @@ def request_liquidity(
     
     try:
         # Parse amount and resolve token
-        token_meta = get_token_metadata(denom.strip().lower())
+        token_meta: TokenMeta = get_token_metadata(denom.strip().lower())
         
         # Scale amount using token decimals
         amount_scaled = int((Decimal(amount) * (10 ** token_meta["decimals"])).quantize(Decimal("1")))
@@ -96,10 +106,10 @@ def request_liquidity(
         collateral_yocto = int((Decimal(collateral) * YOCTO_FACTOR).quantize(Decimal("1")))
         
         # Convert duration to seconds
-        duration_secs = duration * 86400
+        duration_secs: int = duration * 86400
         
         # Prepare the transaction arguments 
-        args = {
+        args: LiquidityRequest = {
             "token": token_meta["contract"],
             "amount": str(amount_scaled),
             "interest": str(interest_scaled),
@@ -112,7 +122,7 @@ def request_liquidity(
             near.call(
                 contract_id=vault_id,
                 method_name="request_liquidity",
-                args=args,
+                args=cast(Dict[str, Any], args),
                 gas=300_000_000_000_000,  # 300 TGas
                 amount=1,                 # 1 yoctoNEAR deposit
             )
@@ -135,9 +145,9 @@ def request_liquidity(
             )
             return
         
-        # Index the vault to Firebase
+        # Index the vault via backend API
         try:
-            index_vault_to_firebase(vault_id)
+            index_vault_to_firebase(vault_id, response.transaction.hash)
         except Exception as e:
             logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
         
@@ -243,8 +253,11 @@ def accept_liquidity_request(vault_id: str) -> None:
                 f"❌ `{vault_id}` has no active liquidity request or it has already been accepted."
             )
             return
-        
-        msg_payload = {
+        # req is present beyond this point
+        assert req is not None
+        req = cast(LiquidityRequest, req)
+
+        msg_payload: AcceptLiquidityMsg = {
             "action": "AcceptLiquidityRequest",
             "token": req["token"],
             "amount": req["amount"],
@@ -278,9 +291,9 @@ def accept_liquidity_request(vault_id: str) -> None:
             )
             return
         
-        # Index the vault to Firebase
+        # Index the vault via backend API
         try:
-            index_vault_to_firebase(vault_id)
+            index_vault_to_firebase(vault_id, tx.transaction.hash)
         except Exception as e:
             logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
         
@@ -288,14 +301,14 @@ def accept_liquidity_request(vault_id: str) -> None:
         token_meta = get_token_metadata_by_contract(token_contract)
         decimals = token_meta["decimals"]
         symbol = token_meta["symbol"]
-        token_amount = (Decimal(token_amount) / Decimal(10 ** decimals)).quantize(Decimal(1))
+        token_amount_val = (Decimal(token_amount) / Decimal(10 ** decimals)).quantize(Decimal(1))
 
         explorer = get_explorer_url()
         env.add_reply(
             f"✅ **Accepted Liquidity Request**\n"
             f"- 🏦 Vault: [`{vault_id}`]({explorer}/accounts/{vault_id})\n"
             f"- 🪙 Token: `{token_contract}`\n"
-            f"- 💵 Amount: `{token_amount}` {symbol}\n"
+            f"- 💵 Amount: `{token_amount_val}` {symbol}\n"
             f"- 🔗 Tx: [{tx.transaction.hash}]({explorer}/transactions/{tx.transaction.hash})"
         )
     
@@ -343,6 +356,9 @@ def view_lender_positions() -> None:
         for v in vaults:
             state = v.get("accepted_offer")
             req = v.get("liquidity_request")
+            if not req or not state:
+                # Skip malformed entries
+                continue
             token_meta = get_token_metadata_by_contract(req["token"])
             decimals = token_meta["decimals"]
             symbol = token_meta["symbol"]

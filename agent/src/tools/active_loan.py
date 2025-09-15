@@ -1,5 +1,4 @@
 import json
-
 from logging import Logger
 from .context import get_env, get_near, get_logger
 from py_near.models import TransactionResult
@@ -54,9 +53,9 @@ def repay_loan(vault_id: str) -> None:
             )
             return
         
-        # Index the updated vault
+        # Index the updated vault via backend API
         try:
-            index_vault_to_firebase(vault_id)
+            index_vault_to_firebase(vault_id, tx.transaction.hash)
         except Exception as e:
             logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
         

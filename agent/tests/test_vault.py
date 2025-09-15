@@ -1,26 +1,16 @@
-import sys
-import os
-import pytest
-import requests
 import time as _time
-
+from datetime import datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime
-from test_utils import make_dummy_resp, mock_setup
+
+import pytest
+import requests
+
 from constants import NANOSECONDS_PER_SECOND
-
-# Make src/ importable
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
-
-import helpers # type: ignore
-from tools import ( # type: ignore[import]
-    vault,
-)
-from helpers import ( # type: ignore[import]
-    USDC_FACTOR,
-    YOCTO_FACTOR
-)
+import helpers
+from helpers import USDC_FACTOR, YOCTO_FACTOR
+from test_utils import make_dummy_resp
+from tools import vault
 
 
 @pytest.fixture
@@ -49,7 +39,7 @@ def _freeze_time(monkeypatch, dt: datetime):
 
 def with_liquidity(state):
     """Inject a liquidity request into vault state."""
-    
+
     state["liquidity_request"] = {
         "token": "usdc.testnet",
         "amount": str(int(Decimal("120.00") * USDC_FACTOR)),
@@ -63,7 +53,7 @@ def with_liquidity(state):
 
 def with_offer(state):
     """Inject an accepted offer into vault state."""
-    
+
     state["accepted_offer"] = {
         "lender": "bob.testnet",
         "accepted_at": int(datetime(2024, 1, 2, 14, 0).timestamp() * NANOSECONDS_PER_SECOND),
@@ -73,7 +63,7 @@ def with_offer(state):
 
 def with_liquidation(state):
     """Inject a liquidation record into vault state."""
-    
+
     state["liquidation"] = {
         "liquidated": str(int(Decimal("3.5") * YOCTO_FACTOR))
     }
@@ -90,12 +80,12 @@ def test_vault_state_minimal(mock_setup, minimal_vault_state):
     - Flags for liquidity request and accepted offer are both False
     - No exception is raised during the call
     """
-    
+
     (dummy_env, mock_near) = mock_setup
     mock_near.view = AsyncMock(return_value=MagicMock(result=minimal_vault_state))
-    
+
     vault.vault_state("vault-0.factory.testnet")
-    
+
     reply = dummy_env.add_reply.call_args_list[-1][0][0]
     assert "✅ **Vault State: `vault-0.factory.testnet`**" in reply
     assert "| Owner" in reply
@@ -113,20 +103,20 @@ def test_vault_state_with_liquidity_request(mock_setup, minimal_vault_state):
     - Liquidity request fields (token, amount, interest, collateral, duration, created_at) are rendered
     - Human-readable formatting is applied for USDC and NEAR
     """
-    
+
     (dummy_env, mock_near) = mock_setup
     mock_near.view = AsyncMock(return_value=MagicMock(result=with_liquidity(minimal_vault_state)))
-    
+
     vault.vault_state("vault-1.factory.testnet")
-    
+
     replies = [call[0][0] for call in dummy_env.add_reply.call_args_list]
     base = replies[0]
     liquidity = replies[1]
-    
+
     # Base vault metadata
     assert "vault-1.factory.testnet" in base
     assert "Owner" in base
-    
+
     # Liquidity request summary
     assert "**📦 Liquidity Request Summary**" in liquidity
     assert "usdc.testnet" in liquidity
@@ -135,8 +125,8 @@ def test_vault_state_with_liquidity_request(mock_setup, minimal_vault_state):
     assert "**5.00000 NEAR**" in liquidity
     assert "1d" in liquidity  # human-readable 86400s
     assert "2024-01-01" in liquidity  # formatted date
-    
-    
+
+
 def test_vault_state_with_offer(mock_setup, minimal_vault_state):
     """
     Should correctly display accepted offer summary when present in vault state.
@@ -146,17 +136,17 @@ def test_vault_state_with_offer(mock_setup, minimal_vault_state):
     - Accepted offer block is rendered with lender and acceptance timestamp
     - Human-readable formatting applied to timestamp
     """
-    
+
     (dummy_env, mock_near) = mock_setup
     mock_near.view = AsyncMock(return_value=MagicMock(result=with_liquidity(with_offer(minimal_vault_state))))
-    
+
     vault.vault_state("vault-2.factory.testnet")
-    
+
     replies = [call[0][0] for call in dummy_env.add_reply.call_args_list]
     base = replies[0]
     # liquidity = replies[1]
     offer = replies[2]
-    
+
     assert "vault-2.factory.testnet" in base
     assert "Accepted Offer" in base
     assert "bob.testnet" in offer
@@ -174,26 +164,26 @@ def test_vault_state_with_liquidation(mock_setup, minimal_vault_state):
     - Liquidation section shows total debt, liquidated amount, and outstanding debt
     - All NEAR amounts are formatted as human-readable
     """
-    
+
     (dummy_env, mock_near) = mock_setup
     state = with_liquidation(with_offer(with_liquidity(minimal_vault_state)))
     mock_near.view = AsyncMock(return_value=MagicMock(result=state))
-    
+
     vault.vault_state("vault-3.factory.testnet")
-    
+
     replies = [call[0][0] for call in dummy_env.add_reply.call_args_list]
     base = replies[0]
     liquidity = replies[1]
     offer = replies[2]
     liquidation = replies[3]
-    
+
     assert "vault-3.factory.testnet" in base
     assert "**📦 Liquidity Request Summary**" in liquidity
     assert "**🤝 Accepted Offer Summary**" in offer
     assert "**⚠️ Liquidation Summary**" in liquidation
     assert "Liquidated" in liquidation
     assert "Outstanding Debt" in liquidation
-    
+
 
 def test_vault_state_offer_expiring(monkeypatch, mock_setup, minimal_vault_state):
     """
@@ -201,45 +191,45 @@ def test_vault_state_offer_expiring(monkeypatch, mock_setup, minimal_vault_state
       • “Expiring In” row is present
       • “Expired” status is NOT present
     """
-    
+
     # Accepted at 2024-01-02 14:00 UTC, duration = 1 day (see with_* helpers)
     # Freeze time to 2024-01-02 18:00 UTC → 20 h remain.
     _freeze_time(monkeypatch, datetime(2024, 1, 2, 18, 0))
-    
+
     (dummy_env, mock_near) = mock_setup
     state = with_liquidity(with_offer(minimal_vault_state))
     mock_near.view = AsyncMock(return_value=MagicMock(result=state))
-    
+
     vault.vault_state("vault-expiring.factory.testnet")
-    
+
     combined = "\n".join(call[0][0] for call in dummy_env.add_reply.call_args_list)
     assert "**🤝 Accepted Offer Summary**" in combined
     assert "Expiring In" in combined
     assert "Expired" not in combined
-    
-    
+
+
 def test_vault_state_offer_expired(monkeypatch, mock_setup, minimal_vault_state):
     """
     After the expiry deadline passes:
       • “Status | Expired” row is present
       • “Expiring In” row is NOT present
     """
-    
+
     # Accepted at 2024-01-02 14:00 UTC, +1 day = 2024-01-03 14:00 UTC.
     # Freeze time to 2024-01-04 00:00 UTC (10 h past expiry).
     _freeze_time(monkeypatch, datetime(2024, 1, 4, 0, 0))
-    
+
     (dummy_env, mock_near) = mock_setup
     state = with_liquidity(with_offer(minimal_vault_state))
     mock_near.view = AsyncMock(return_value=MagicMock(result=state))
-    
+
     vault.vault_state("vault-expired.factory.testnet")
-    
+
     combined = "\n".join(call[0][0] for call in dummy_env.add_reply.call_args_list)
     assert "**🤝 Accepted Offer Summary**" in combined
     assert "Status" in combined and "Expired" in combined
     assert "Expiring In" not in combined
-    
+
 
 # ───────────────── view_user_vaults tests ─────────────────
 def test_view_user_vaults_success(monkeypatch, mock_setup):
@@ -249,14 +239,14 @@ def test_view_user_vaults_success(monkeypatch, mock_setup):
       • Cloud Function returns 2 vaults
       • Tool should emit a list with both IDs
     """
-    
+
     (dummy_env, _) = mock_setup
-    
+
     # Head-less mode + signer + network
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless", raising=False)
-    monkeypatch.setattr(helpers, "_ACCOUNT_ID",  "alice.testnet", raising=False)
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setattr(helpers, "_account_id",  "alice.testnet", raising=False)
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
-    
+
     # Patch requests.get inside vault module to return fake JSON list
     monkeypatch.setattr(
         vault.requests, "get",
@@ -264,46 +254,46 @@ def test_view_user_vaults_success(monkeypatch, mock_setup):
             ["vault-0.factory.testnet", "vault-1.factory.testnet"]
         ),
     )
-    
+
     # Run the tool
     vault.view_user_vaults()
-    
+
     # Assertions
     dummy_env.add_reply.assert_called_once()
     msg = dummy_env.add_reply.call_args[0][0]
     assert "You have 2 vaults"  in msg
     assert "- vault-0.factory.testnet" in msg
     assert "- vault-1.factory.testnet" in msg
-    
+
 
 def test_view_user_vaults_empty(monkeypatch, mock_setup):
     """
     Cloud Function returns an empty list → tool should reply
     “No vaults found …” (and *not* list anything).
     """
-    
+
     (dummy_env, _) = mock_setup
-    
+
     # Head-less signer + network
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless", raising=False)
-    monkeypatch.setattr(helpers, "_ACCOUNT_ID",  "bob.testnet", raising=False)
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setattr(helpers, "_account_id",  "bob.testnet", raising=False)
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
-    
+
     # Patch requests.get to return an empty JSON array
     monkeypatch.setattr(
         vault.requests, "get",
         lambda url, timeout: make_dummy_resp([]),
     )
-    
+
     # Invoke the tool
     vault.view_user_vaults()
-    
+
     # Verify exactly one “no vaults” reply
     dummy_env.add_reply.assert_called_once()
     msg = dummy_env.add_reply.call_args[0][0]
     assert "No vaults found" in msg
     assert "bob.testnet"      in msg
-    
+
 
 def test_view_user_vaults_no_creds(monkeypatch, mock_setup):
     """
@@ -311,25 +301,25 @@ def test_view_user_vaults_no_creds(monkeypatch, mock_setup):
        • emit the 'no signing keys' warning
        • never call requests.get()
     """
-    
+
     (dummy_env, _) = mock_setup
-    
+
     # Simulate missing keys
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", None, raising=False)
-    
+    monkeypatch.setattr(helpers, "_signing_mode", None, raising=False)
+
     # Stub requests.get so we can assert it was not used
     dummy_get = MagicMock()
     monkeypatch.setattr(vault.requests, "get", dummy_get)
-    
+
     # Run the tool
     vault.view_user_vaults()
-    
+
     # Assertions
     dummy_env.add_reply.assert_called_once()
     warn = dummy_env.add_reply.call_args[0][0].lower()
     assert "no signing keys" in warn
     dummy_get.assert_not_called()
-    
+
 
 def test_view_user_vaults_http_error(monkeypatch, mock_setup):
     """
@@ -337,23 +327,23 @@ def test_view_user_vaults_http_error(monkeypatch, mock_setup):
        • requests.get raises ConnectionError
        • Tool should catch it and emit the generic failure reply
     """
-    
+
     (dummy_env, _) = mock_setup
-    
+
     # Head-less signer & network
-    monkeypatch.setattr(helpers, "_SIGNING_MODE", "headless", raising=False)
-    monkeypatch.setattr(helpers, "_ACCOUNT_ID",  "carol.testnet", raising=False)
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setattr(helpers, "_account_id",  "carol.testnet", raising=False)
     monkeypatch.setenv("NEAR_NETWORK", "testnet")
-    
+
     # Patch requests.get inside vault to raise an error
     def boom(url, timeout):
         raise requests.exceptions.ConnectionError("node unreachable")
-    
+
     monkeypatch.setattr(vault.requests, "get", boom)
-    
+
     # Run the tool
     vault.view_user_vaults()
-    
+
     # Assertions
     dummy_env.add_reply.assert_called_once()
     msg = dummy_env.add_reply.call_args[0][0]

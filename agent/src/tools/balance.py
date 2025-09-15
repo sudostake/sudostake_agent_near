@@ -31,6 +31,9 @@ def view_main_balance() -> None:
     
     # Get the signer's account id
     acct_id = account_id()
+    if acct_id is None:
+        env.add_reply("❌ Signer account not available. Set NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY.")
+        return
     
     try:
         # py_near.Account.get_balance() -> int with 'amount' in yocto

@@ -1,6 +1,4 @@
 import json
-import os
-
 from decimal import Decimal
 from logging import Logger
 from .context import get_env, get_near, get_logger
@@ -15,6 +13,7 @@ from helpers import (
     get_explorer_url,
 )
 from py_near.models import TransactionResult
+
 
 def mint_vault() -> None:
     """
@@ -79,9 +78,9 @@ def mint_vault() -> None:
         if vault_acct is None:
             raise RuntimeError("vault_minted log not found in transaction logs")
         
-        # Index the vault to Firebase
+        # Index the vault via backend API
         try:
-            index_vault_to_firebase(vault_acct)
+            index_vault_to_firebase(vault_acct, tx_hash)
         except Exception as e:
             logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
         

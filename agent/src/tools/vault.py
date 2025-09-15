@@ -1,3 +1,5 @@
+"""Vault-related helpers: formatting, state views, and user vaults."""
+
 import requests
 import textwrap
 import time
@@ -26,7 +28,7 @@ def format_duration(seconds: int) -> str:
     hours, remainder = divmod(delta.seconds, 3600)
     minutes, _ = divmod(remainder, 60)
     
-    parts = []
+    parts: List[str] = []
     if days: parts.append(f"{days}d")
     if hours: parts.append(f"{hours}h")
     if minutes: parts.append(f"{minutes}m")
@@ -102,12 +104,13 @@ def vault_state(vault_id: str) -> None:
 
     try:
         response = run_coroutine(near.view(vault_id, "get_vault_state", {}))
-        if not response or not hasattr(response, "result") or response.result is None:
+        result_obj = getattr(response, "result", None)
+        if result_obj is None:
             env.add_reply(f"❌ No data returned for `{vault_id}`. Is the contract deployed?")
             return
         
         # Get the result state from the response
-        state = response.result
+        state = result_obj
         
         # Add vault state summary
         env.add_reply(
@@ -128,7 +131,7 @@ def vault_state(vault_id: str) -> None:
             usdc_amount = Decimal(req["amount"]) / USDC_FACTOR
             usdc_interest = Decimal(req["interest"]) / USDC_FACTOR
             near_collateral = Decimal(req["collateral"]) / YOCTO_FACTOR
-            duration = format_duration(req["duration"])
+            duration = format_duration(int(req["duration"]))
             created_at = format_near_timestamp(int(req["created_at"]))
             
             env.add_reply(
@@ -153,14 +156,14 @@ def vault_state(vault_id: str) -> None:
             req = state.get("liquidity_request")
             expiry_row = "| Status        | `Expired`           |\n"
             
-            duration_s  = int(req["duration"])
-            expiry_ns   = accepted_ns + duration_s * NANOSECONDS_PER_SECOND
-            secs_left  = int(expiry_ns / NANOSECONDS_PER_SECOND) - int(time.time())
-            
-            if secs_left > 0:
-                expiry_row = (
-                    f"| Expiring In   | `{format_remaining(secs_left)}` |\n"
-                )
+            if req and "duration" in req:
+                duration_s  = int(req["duration"])
+                expiry_ns   = accepted_ns + duration_s * NANOSECONDS_PER_SECOND
+                secs_left   = int(expiry_ns / NANOSECONDS_PER_SECOND) - int(time.time())
+                if secs_left > 0:
+                    expiry_row = (
+                        f"| Expiring In   | `{format_remaining(secs_left)}` |\n"
+                    )
             
             env.add_reply(
                 "**🤝 Accepted Offer Summary**\n\n"
@@ -202,7 +205,7 @@ def view_user_vaults() -> None:
     """
     
     env = get_env()
-    log = get_logger()
+    log: Logger = get_logger()
     
     # 'headless' or None
     if signing_mode() != "headless":
@@ -244,4 +247,3 @@ def view_user_vaults() -> None:
     except Exception as e:
         log.error("view_user_vaults error for %s: %s", acct_id, e, exc_info=True)
         env.add_reply(f"❌ Failed to fetch vault list\n\n**Error:** {e}")
-

@@ -1,11 +1,5 @@
-import sys
-import os
 import pytest
-
-# Make src/ importable
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
-
-import token_registry # type: ignore
+import token_registry
 
 
 @pytest.fixture(autouse=True)
@@ -62,8 +56,8 @@ def test_get_token_metadata_by_contract_invalid():
 
 def test_get_token_metadata_by_contract_invalid_network(monkeypatch):
     monkeypatch.setenv("NEAR_NETWORK", "invalidnet")
-    
+
     with pytest.raises(ValueError) as excinfo:
         token_registry.get_token_metadata_by_contract("usdc.tkn.primitives.testnet")
-    
+
     assert "Unsupported network" in str(excinfo.value)

@@ -1,62 +1,68 @@
 import json
-
 from nearai.agents.environment import Environment
 from helpers import ensure_loop, init_near, vector_store_id, top_doc_chunks
 from tools import register_tools
 
 
-def run(env: Environment):
+def run(env: Environment) -> None:
     """
-    Entry-point invoked by NEAR AI Agents Hub.
-
-    * Sets up a stable asyncio loop.
-    * Initialises the NEAR connection in either:
-        - headless-creds mode      (private key in secrets)
-        - wallet-signer mode       (browser wallet attached)
-        - read-only / onboarding   (neither present)
-    * Registers all SudoStake tools.
-    * Boots the LM with a system prompt + optional onboarding hint.
+    Minimal, single-source entrypoint:
+    - Ensure loop, initialize NEAR via helpers.
+    - Register tools via tools.base.
+    - Assemble prompt with optional docs grounding.
+    - Always respond; surface concise diagnostics on failure.
     """
 
-    # Ensure asynchronous primitives have an event loop to bind to.
+    # Event loop + NEAR init
     ensure_loop()
+    try:
+        near = init_near(env)
+    except Exception as e:
+        env.add_reply(
+            "Failed to initialize NEAR. Set NEAR_NETWORK and optionally headless creds.\n"
+            f"Error: {e}"
+        )
+        return
 
-    # Configure NEAR (returns py-near Account + headless flag)
-    near = init_near(env)
-    
-    # Register tools and get their definitions
+    # Register tools
     tool_defs = register_tools(env, near)
-    
-    # Query the Vector Store
-    messages = env.list_messages()
-    user_query = messages[-1]["content"]
-    docs = top_doc_chunks(env, vector_store_id(), user_query)
 
-    # Init prompt list with system message
+    # Build prompt (system → history → docs → latest user)
+    messages = env.list_messages()
+    history = messages[:-1] if len(messages) > 1 else []
+    latest = [messages[-1]] if messages else []
+
+    # Best-effort docs grounding
+    docs = []
+    try:
+        user_query = latest[-1]["content"] if latest else ""
+        if user_query:
+            docs = top_doc_chunks(env, vector_store_id(), user_query)
+    except Exception:
+        docs = []
+
     prompt_list = [
         {
-            "role": "user",
-            "content": user_query,
-        },
-        {
-            "role": "documentation",
-            "content": json.dumps(docs),
-        },
-        {
             "role": "system",
-            "content": "You are SudoStake's AI Agent. "
-                    "Help users inspect or manage their vaults on NEAR."
-        }
+            "content": (
+                "You are SudoStake's AI Agent. "
+                "If documentation is provided, use it as your primary source. "
+                "Ground answers in the docs; do not invent facts. "
+                "If the docs lack detail, say so and suggest the docs tool."
+            ),
+        },
+        *history,
+        *([{ "role": "documentation", "content": json.dumps(docs)}] if docs else []),
+        *latest,
     ]
-    
-    # Append any prior conversation history supplied by the Hub
-    prompt_list.extend(messages)
 
-    # Begin tool-driven interaction
-    env.completions_and_run_tools(
-        prompt_list,
-        tools=tool_defs,
-    )
+    try:
+        env.completions_and_run_tools(prompt_list, tools=tool_defs)
+    except Exception as e:
+        env.add_reply(
+            "The assistant encountered an error while generating a reply.\n"
+            f"Error: {e}"
+        )
 
 
 # Only invoke run(env) if NearAI has injected `env` at import time.

@@ -1,0 +1,14 @@
+{
+  "typeCheckingMode": "basic",
+  "extraPaths": [
+    "agent/src",
+    "agent/jobs"
+  ],
+  "reportMissingImports": true,
+  "include": [
+    "agent/src",
+    "agent/jobs",
+    "agent/tests"
+  ]
+}
+
