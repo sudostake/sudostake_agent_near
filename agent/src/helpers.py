@@ -64,7 +64,16 @@ _VECTOR_STORE_ID: str = "vs_ecd9ba192396493984d66feb" # default vector store ID
 # expose handy getters
 def signing_mode()    -> Optional[str]: return _signing_mode
 def account_id()      -> Optional[str]: return _account_id
-def vector_store_id() -> str: return _VECTOR_STORE_ID
+def vector_store_id() -> str:
+    """Return the vector-store ID with safe env override.
+
+    Respects `SUDOSTAKE_VECTOR_STORE_ID` when set to a non-empty value;
+    otherwise falls back to the baked-in `_VECTOR_STORE_ID`.
+    """
+    env_id = os.getenv("SUDOSTAKE_VECTOR_STORE_ID")
+    if env_id is not None and env_id.strip():
+        return env_id
+    return _VECTOR_STORE_ID
 def firebase_vaults_api() -> str:       return _FIREBASE_VAULTS_API
 # ──────────────────────────────────────────────────────────────
 
@@ -155,6 +164,10 @@ def run_coroutine(coroutine: Awaitable[T]) -> T:
 def _set_state(mode: Optional[str], acct: Optional[str]) -> None:
     global _signing_mode, _account_id
     _signing_mode, _account_id = mode, acct
+
+def propagate_signing_state(mode: Optional[str], acct: Optional[str]) -> None:
+    """Public helper to update signing context for tools that rely on helpers.* getters."""
+    _set_state(mode, acct)
 
 
 def init_near(env: Environment) -> NearClient:
