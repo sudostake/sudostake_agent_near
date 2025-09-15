@@ -4,7 +4,7 @@ import requests
 
 from nearai.agents.environment import Environment
 from typing import Awaitable, TypeVar, Optional, Any, List, Dict, cast
-from tools.context import NearClient
+from near_types import NearClient
 from decimal import Decimal
 from datetime import datetime, timezone
 from constants import NANOSECONDS_PER_SECOND
@@ -124,6 +124,22 @@ def get_explorer_url() -> str:
             f"{network or 'unset'})"
         )
     return _EXPLORER_URL[network]
+
+
+def get_rpc_addr(network: Optional[str] = None) -> str:
+    """Return the NEAR RPC endpoint for the active network.
+
+    If ``network`` is None, reads ``NEAR_NETWORK`` from the environment.
+    Raises a RuntimeError when the value is missing or invalid, matching
+    the messaging used elsewhere in helpers.
+    """
+    net = network or os.getenv("NEAR_NETWORK")
+    if net not in _DEFAULT_RPC:
+        raise RuntimeError(
+            "NEAR_NETWORK must be set to 'mainnet' or 'testnet' (got: "
+            f"{net or 'unset'})"
+        )
+    return _DEFAULT_RPC[net]
 
 
 def get_factory_contract() -> str:

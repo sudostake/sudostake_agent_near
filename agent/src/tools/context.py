@@ -3,47 +3,9 @@ import os
 import sys
 
 from nearai.agents.environment import Environment
-from typing import TYPE_CHECKING
 from logging import Logger
-
-
-# Globals (initialized via set_context before use)
-from typing import Optional, Protocol, Awaitable, Any, Dict
-
-# Avoid hard runtime dependency on py_near.models; use it only for typing
-if TYPE_CHECKING:
-    from py_near.models import TransactionResult  # type: ignore
-else:
-    TransactionResult = Any  # fallback for runtime
-
-
-class NearClient(Protocol):
-    """Minimal protocol for the NEAR client used by tools.
-
-    Matches the subset of methods our code calls, regardless of the concrete
-    implementation (py-near Account, wrapper, or mock in tests).
-    """
-
-    def call(
-        self,
-        *,
-        contract_id: str,
-        method_name: str,
-        args: Dict[str, Any],
-        gas: int,
-        amount: int,
-    ) -> Awaitable[TransactionResult]:
-        ...
-
-    def view(self, contract_id: str, method_name: str, args: Dict[str, Any]) -> Awaitable[Any]:
-        ...
-
-    def send_money(self, *, account_id: str, amount: int) -> Awaitable[TransactionResult]:
-        ...
-
-    def get_balance(self) -> Awaitable[int]:
-        ...
-
+from typing import Optional
+from near_types import NearClient
 
 _env: Optional[Environment] = None
 _near: Optional[NearClient] = None
