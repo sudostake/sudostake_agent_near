@@ -12,7 +12,7 @@ Both functions:
 - parse structured EVENT_JSON logs where helpful to provide context.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 import json
 from logging import Logger
 from .context import get_env, get_near, get_logger
