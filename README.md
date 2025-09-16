@@ -1,32 +1,33 @@
 # SudoStake Agent (NEAR)
 
-Simple, typed Python agent that helps you inspect and manage SudoStake vaults on NEAR. You can run it locally, test it quickly, and ship new builds with a single script.
+Typed Python agent to inspect and manage SudoStake vaults on NEAR. Runs locally in read‑only mode by default; can sign transactions when you provide keys. Tests are fast, and releases build from a single script.
 
-## Quickstart
-- Requirements: Python 3.9+, pip, and optionally the NEAR AI CLI (`nearai`) if you want to run interactively.
+## Prerequisites
+- Python 3.9+ and `pip`
+- Optional (to run interactively): NEAR AI CLI `nearai`
+- For building releases: `jq` and Python `semver` package
 
-1) Create a virtualenv and install deps
+## Setup
+1) Create and activate a virtual environment
    - `python3 -m venv .venv`
    - `source .venv/bin/activate`
+2) Install dependencies
    - `pip install -r requirements.txt`
-
-2) Run tests
+3) Run tests (optional, recommended)
    - `pytest -q`
 
-3) Build (optional)
-   - `./agent/build.sh patch`  (use `minor` or `major` to bump accordingly)
-   - Prereqs: `pip install semver`, and `jq` installed (`brew install jq` on macOS or `sudo apt install jq` on Debian/Ubuntu)
+## Run (interactive)
+The agent works without keys (view‑only) or with keys (can sign actions like delegate, mint, withdraw).
 
-4) Run the agent locally (interactive)
-   - As a vault owner: `source ~/.near_vault_owner_profile && nearai agent interactive --local`
-   - As a USDC lender: `source ~/.near_vault_lender_profile && nearai agent interactive --local`
+- View‑only: `nearai agent interactive --local`
+- With a profile (recommended):
+  - As a vault owner: `source ~/.near_vault_owner_profile && nearai agent interactive --local`
+  - As a USDC lender: `source ~/.near_vault_lender_profile && nearai agent interactive --local`
 
-Notes
-- Without signing keys, the agent runs in read‑only mode and still answers queries (e.g., docs, views).
-- With signing keys, it can sign transactions (delegate, mint, withdraw, etc.).
+If you don’t have `nearai`, install it per NEAR AI docs or use the environment variables below to run headless.
 
-## Environment Variables (headless signing)
-Set these if you want the agent to sign transactions without a wallet prompt:
+## Enable Signing (headless)
+Set these environment variables to allow the agent to sign transactions. If unset, the agent stays view‑only.
 
 ```
 export NEAR_NETWORK=testnet            # or mainnet
@@ -34,51 +35,51 @@ export NEAR_ACCOUNT_ID=<account.testnet>
 export NEAR_PRIVATE_KEY=<ed25519:...>
 ```
 
-If these are not set, the agent remains view‑only.
-
-### Example Profiles (dummy data)
-Save these files to your shell and source them before running interactively. Replace the dummy values with your own.
-
-Owner profile (`~/.near_vault_owner_profile`):
+### Example profiles (replace with your values)
+Owner (`~/.near_vault_owner_profile`):
 ```
 export NEAR_NETWORK=testnet
 export NEAR_ACCOUNT_ID=owner.demo.testnet
 export NEAR_PRIVATE_KEY=ed25519:1111111111111111111111111111111111111111111111111111111111111111
 ```
 
-Lender profile (`~/.near_vault_lender_profile`):
+Lender (`~/.near_vault_lender_profile`):
 ```
 export NEAR_NETWORK=testnet
 export NEAR_ACCOUNT_ID=lender.demo.testnet
 export NEAR_PRIVATE_KEY=ed25519:2222222222222222222222222222222222222222222222222222222222222222
 ```
 
-## Build a Release
-The build script bumps a version and prepares an artifact.
+## Build From Source
+Build a versioned artifact of the agent that you can run locally or upload to the NEAR AI registry.
 
-Prereqs:
+Prerequisites
 - `pip install semver`
-- macOS: `brew install jq`  (Debian/Ubuntu: `sudo apt install jq`)
+- macOS: `brew install jq`  • Debian/Ubuntu: `sudo apt install jq`
 
-Run:
-```
-chmod +x ./agent/build.sh
-./agent/build.sh patch     # or: minor | major
-```
+Steps
+1) Make the build script executable
+   - `chmod +x ./agent/build.sh`
+2) Build with a version bump
+   - `./agent/build.sh patch`  (or `minor` | `major`)
+3) Note the output folder
+   - The script prints the destination like `~/.nearai/registry/sudostake.near/sudo/1.2.3`
+   - It copies `agent/src` into that folder and stamps `metadata.json`
+
+Run the built artifact locally
+- `nearai agent interactive "~/.nearai/registry/sudostake.near/sudo/1.2.3" --local`
+
+Upload to registry (optional)
+- `nearai registry upload "~/.nearai/registry/sudostake.near/sudo/1.2.3"`
 
 ## Project Structure
 - `agent/src` — Agent code
-  - `agent/src/tools` — Domain tools (vault, delegation, liquidity, etc.)
-  - `agent/src/agent.py` — Entry point wired to NEAR AI runtime
-  - `agent/src/helpers.py` — Shared helpers (env, constants, formatting)
+  - `agent/src/tools` — Vault, delegation, liquidity, etc.
+  - `agent/src/agent.py` — Entry point for NEAR AI runtime
+  - `agent/src/helpers.py` — Env, constants, formatting
 - `agent/tests` — Pytest suite (fast, isolated)
 - `agent/jobs` — Optional maintenance jobs (e.g., vector store init)
 
-## Common Tasks
-- Run tests: `pytest -q`
-- Run interactively: `nearai agent interactive --local` (with a sourced profile)
-- Lint/type in your IDE: repo includes `pyrightconfig.json` and `.editorconfig`
-
 ## Troubleshooting
-- Pylance import resolution: the repo includes `pyrightconfig.json` with `extraPaths` so editors can resolve `agent/src` and `agent/jobs`.
-- SSL warning in tests: urllib3 may warn about LibreSSL; it’s harmless for local tests.
+- Editor imports: `pyrightconfig.json` sets `extraPaths` for `agent/src` and `agent/jobs`.
+- SSL warnings in tests: urllib3/LibreSSL warnings are harmless locally.
