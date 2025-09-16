@@ -20,10 +20,7 @@ def _ensure_console_logging() -> None:
     lines appear exactly once in the console.
     """
 
-    level_name = os.getenv("SUDOSTAKE_LOG_LEVEL", "INFO").upper()
-    level = getattr(logging, level_name, logging.INFO)
-
-    _logger.setLevel(level)
+    _logger.setLevel(logging.INFO)
     if not _logger.handlers:
         handler = logging.StreamHandler(stream=sys.stdout)
         handler.setFormatter(
