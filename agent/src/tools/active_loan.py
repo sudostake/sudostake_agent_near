@@ -102,7 +102,8 @@ def _map_process_claims_panic_message(
             )
 
         # Processing lock busy
-        m2 = re.search(r"Vault busy with (?:\\"|)([A-Za-z]+)(?:\\"|)", s)
+        # Matches: Vault busy with "ProcessKind" or without quotes
+        m2 = re.search(r'Vault busy with "?([A-Za-z]+)"?', s)
         if m2:
             kind = m2.group(1)
             return (
@@ -142,12 +143,6 @@ def repay_loan(vault_id: str) -> None:
     """
     
     env = get_env()
-    # 'headless' or None
-    if signing_mode() != "headless":
-        env.add_reply(
-            "⚠️ No signing keys available. Add `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` to secrets, then try again."
-        )
-        return
     near = get_near()
     logger: Logger = get_logger()
     
