@@ -14,6 +14,7 @@ Both functions:
 
 from typing import Any, Dict, Optional
 import json
+import re
 from logging import Logger
 from .context import get_env, get_near, get_logger
 from py_near.models import TransactionResult
@@ -78,7 +79,6 @@ def _map_process_claims_panic_message(
 ) -> Optional[str]:
     """Return a friendly message for known process_claims panics or None."""
     try:
-        import re
         s = json.dumps(failure)
 
         # Not expired yet
@@ -181,7 +181,7 @@ def repay_loan(vault_id: str) -> None:
         try:
             index_vault_to_firebase(vault_id, tx.transaction.hash)
         except Exception as e:
-            logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
+            logger.warning("Failed to index vault to Firebase: %s", e, exc_info=True)
         
         explorer = get_explorer_url()
         env.add_reply(
@@ -248,7 +248,7 @@ def process_claims(vault_id: str) -> None:
         try:
             index_vault_to_firebase(vault_id, tx.transaction.hash)
         except Exception as e:
-            logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
+            logger.warning("Failed to index vault to Firebase: %s", e, exc_info=True)
 
         explorer = get_explorer_url()
 
