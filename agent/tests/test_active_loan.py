@@ -1,6 +1,14 @@
 from unittest.mock import AsyncMock, MagicMock
 from tools import active_loan
 import helpers
+import json
+
+
+def event_json(event, data=None):
+    payload = {"event": event}
+    if data is not None:
+        payload["data"] = data
+    return f"EVENT_JSON:{json.dumps(payload)}"
 
 
 def test_repay_loan_success(monkeypatch, mock_setup):
@@ -72,7 +80,7 @@ def test_repay_loan_ft_transfer_failure_log(monkeypatch, mock_setup):
     mock_near.call = AsyncMock(return_value=MagicMock(
         transaction=MagicMock(hash="tx_logs"),
         logs=[
-            'EVENT_JSON:{"event":"repay_loan_failed"}'
+            event_json("repay_loan_failed")
         ],
         status={"SuccessValue": ""},
     ))
@@ -260,8 +268,12 @@ def test_process_claims_progress_with_details(monkeypatch, mock_setup):
 
     logs = [
         "liquidation_started",
-        'EVENT_JSON:{"event":"unstake_recorded","data":{"validator":"val.poolv1.near","amount":"1230000000000000000000000","epoch_height": 1234}}',
-        'EVENT_JSON:{"event":"liquidation_progress","data":{"reason":"awaiting unstake"}}',
+        event_json("unstake_recorded", {
+            "validator": "val.poolv1.near",
+            "amount": "1230000000000000000000000",
+            "epoch_height": 1234,
+        }),
+        event_json("liquidation_progress", {"reason": "awaiting unstake"}),
         "unstake_failed",
     ]
 

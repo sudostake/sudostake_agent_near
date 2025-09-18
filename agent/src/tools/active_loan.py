@@ -261,8 +261,8 @@ def process_claims(vault_id: str) -> None:
 
         if completed:
             # Try to surface total repaid from event payload
-            comp = find_event_data(tx.logs, "liquidation_complete")
-            total_repaid = (comp or {}).get("total_repaid")
+            completion_data = find_event_data(tx.logs, "liquidation_complete")
+            total_repaid = (completion_data or {}).get("total_repaid")
             extra = f"\n- 💰 Total repaid: `{total_repaid}` yoctoNEAR" if total_repaid else ""
             env.add_reply(
                 f"✅ **Liquidation Complete** — lender fully repaid.{extra}\n"
@@ -277,9 +277,11 @@ def process_claims(vault_id: str) -> None:
             started_data = find_event_data(tx.logs, "liquidation_started")
             started_when = None
             try:
-                at_ns = int((started_data or {}).get("at", "0")) if started_data else None
-                if at_ns:
-                    started_when = format_near_timestamp(at_ns)
+                at_value = (started_data or {}).get("at") if started_data else None
+                if at_value is not None:
+                    at_ns = int(at_value)
+                    if at_ns > 0:
+                        started_when = format_near_timestamp(at_ns)
             except Exception:
                 started_when = None
             lender = (started_data or {}).get("lender") if started_data else None
