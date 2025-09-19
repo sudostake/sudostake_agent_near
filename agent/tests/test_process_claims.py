@@ -416,3 +416,34 @@ def test_process_claims_rpc_hint_on_dns_error(monkeypatch, mock_setup):
     msg = env.add_reply.call_args[0][0]
     assert "RPC appears unreachable" in msg
     assert "NEAR_NETWORK" in msg
+
+
+def test_process_claims_progress_preferred_over_completion(monkeypatch, mock_setup):
+    """When both progress and completion logs are present, show progress summary."""
+
+    env, mock_near = mock_setup
+
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+
+    logs = [
+        event_json("liquidation_started", {"lender": "bob.testnet", "at": "1700000000000000000"}),
+        event_json("liquidation_progress", {"reason": "awaiting unstake"}),
+        "liquidation_complete",
+    ]
+
+    # Make timestamp formatting deterministic through active_loan hook
+    monkeypatch.setattr(active_loan, "format_near_timestamp", lambda ns: "2025-05-06 07:08 UTC")
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="tx_prog_then_done"),
+        logs=logs,
+        status={"SuccessValue": ""},
+    ))
+
+    pc.process_claims("vault-both.factory.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "Claims Processing In Progress" in msg
+    assert "Liquidation Complete" not in msg
