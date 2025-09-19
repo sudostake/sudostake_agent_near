@@ -208,7 +208,7 @@ def test_process_claims_runtime_error(monkeypatch, mock_setup):
     assert "boom" in msg
 
 
-# ───────────────── additional coverage for process_claims ─────────────────
+# Edge case and error handling tests for process_claims
 
 def _failure_with_exec_error(message: str) -> dict:
     return {
