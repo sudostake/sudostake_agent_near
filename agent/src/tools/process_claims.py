@@ -321,20 +321,20 @@ def process_claims(vault_id: str) -> None:
         # Partial progress path first
         progress_lines = _build_progress_lines(tx.logs)
 
-        # Prefer a completion summary if present, shown after progress building
-        if completed:
-            extra = _completion_extra_from_logs(tx.logs)
-            env.add_reply(
-                f"✅ **Liquidation Complete** — lender fully repaid.{extra}\n"
-                + _header_lines(explorer, vault_id, tx.transaction.hash)
-            )
-            return
-
+        # Show progress first when present; handle completion afterwards
         if progress_lines:
             env.add_reply(
                 "🔄 **Claims Processing In Progress**\n"
                 + _header_lines(explorer, vault_id, tx.transaction.hash) + "\n"
                 + "\n".join(progress_lines)
+            )
+            return
+
+        if completed:
+            extra = _completion_extra_from_logs(tx.logs)
+            env.add_reply(
+                f"✅ **Liquidation Complete** — lender fully repaid.{extra}\n"
+                + _header_lines(explorer, vault_id, tx.transaction.hash)
             )
             return
 
