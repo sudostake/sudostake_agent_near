@@ -25,6 +25,7 @@ from helpers import (
     signing_mode,
     find_event_data,
     YOCTO_FACTOR,
+    index_vault_to_firebase,
 )
 
 # Import active_loan as a module to use its format helper;
@@ -118,12 +119,7 @@ def _map_process_claims_panic_message(
 # Shared helpers
 # -----------------------------------------------------------------------------
 
-def _index_vault_best_effort(logger: Logger, vault_id: str, tx_hash: str) -> None:
-    try:
-        # Use active_loan binding so tests can monkeypatch via tools.active_loan
-        active_loan_mod.index_vault_to_firebase(vault_id, tx_hash)
-    except Exception as e:
-        logger.warning("Failed to index vault to Firebase: %s", e, exc_info=True)
+# Removed _index_vault_best_effort; call index_vault_to_firebase directly with best-effort handling.
 
 
 def _header_lines(explorer: str, vault_id: str, tx_hash: str) -> str:
@@ -312,7 +308,10 @@ def process_claims(vault_id: str) -> None:
             return
 
         # Index the updated vault via backend API (best-effort)
-        _index_vault_best_effort(logger, vault_id, tx.transaction.hash)
+        try:
+            index_vault_to_firebase(vault_id, tx.transaction.hash)
+        except Exception as e:
+            logger.warning("Failed to index vault to Firebase: %s", e, exc_info=True)
 
         explorer = get_explorer_url()
 

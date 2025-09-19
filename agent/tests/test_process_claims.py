@@ -180,7 +180,8 @@ def test_process_claims_indexing_failure_does_not_block(monkeypatch, mock_setup)
     def raise_index_error(vault_id, tx_hash):
         raise Exception("index failure")
 
-    monkeypatch.setattr(active_loan, "index_vault_to_firebase", raise_index_error)
+    # Patch the symbol as imported into the process_claims module
+    monkeypatch.setattr(pc, "index_vault_to_firebase", raise_index_error)
 
     pc.process_claims("vault-idx.factory.testnet")
 
@@ -415,4 +416,3 @@ def test_process_claims_rpc_hint_on_dns_error(monkeypatch, mock_setup):
     msg = env.add_reply.call_args[0][0]
     assert "RPC appears unreachable" in msg
     assert "NEAR_NETWORK" in msg
-
