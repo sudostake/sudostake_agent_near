@@ -63,6 +63,7 @@ Usage: `source ~/.near_agent_profile && nearai agent interactive --local`
 ## Troubleshooting
 - Initialization/network
   - `nearai` defaults to mainnet; use a profile or inline `NEAR_NETWORK` to switch.
+  - This project uses built-in RPC URLs per network and does not accept custom RPC overrides.
 - CLI not found
   - Activate venv and reinstall deps: `source .venv/bin/activate && pip install -r requirements.txt`.
 - Build errors (jq/semver)
@@ -73,3 +74,10 @@ Usage: `source ~/.near_agent_profile && nearai agent interactive --local`
 ## Security
 - Keep `NEAR_PRIVATE_KEY` secret; never commit it.
 - Prefer profile files and local shell secret management.
+
+## Configuration Policy
+- Only the following env vars are honored:
+  - `NEAR_NETWORK` (mainnet|testnet)
+  - `NEAR_ACCOUNT_ID`
+  - `NEAR_PRIVATE_KEY`
+- All other settings are static in the app and not overridden by env vars.

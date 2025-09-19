@@ -13,6 +13,7 @@ Both functions:
 """
 
 from typing import Any, Dict, Optional
+import os
 import json
 import re
 from logging import Logger
@@ -127,6 +128,45 @@ def _map_process_claims_panic_message(
 
 
 # -----------------------------------------------------------------------------
+# Internal helpers — RPC connectivity hints
+# -----------------------------------------------------------------------------
+
+def _rpc_connectivity_hint(ex: Exception, vault_id: str) -> Optional[str]:
+    """Return a short, actionable hint if the error looks like an RPC outage.
+
+    Detects common network resolution/connection failures and suggests:
+    - Ensuring NEAR_NETWORK matches the vault suffix
+    - Overriding the RPC via NEAR_RPC_ADDR
+    """
+    s = str(ex)
+    indicators = (
+        "RPC not available",
+        "nodename nor servname",
+        "Name or service not known",
+        "getaddrinfo",
+        "Failed to establish a new connection",
+        "Max retries exceeded",
+        "Temporary failure in name resolution",
+    )
+    if not any(x in s for x in indicators):
+        return None
+
+    # Guess desired network from the vault id
+    want_testnet = ".testnet" in vault_id
+    suggested_network = "testnet" if want_testnet else "mainnet"
+    example_rpc = (
+        "https://rpc.testnet.near.org" if want_testnet else "https://rpc.mainnet.near.org"
+    )
+    current_net = os.getenv("NEAR_NETWORK") or "unset"
+
+    return (
+        "📡 RPC appears unreachable.\n"
+        f"- Current NEAR_NETWORK: `{current_net}` (vault looks like `{suggested_network}`)\n"
+        f"- Tip: set `NEAR_NETWORK={suggested_network}` for this vault.\n"
+        "- Check your network/DNS and retry shortly."
+    )
+
+# -----------------------------------------------------------------------------
 # repay_loan
 # -----------------------------------------------------------------------------
 
@@ -191,7 +231,9 @@ def repay_loan(vault_id: str) -> None:
         )
     except Exception as e:
         logger.error("repay_loan failed: %s", e, exc_info=True)
-        env.add_reply(f"❌ Unexpected error during loan repayment\n\n**Error:** {e}")
+        hint = _rpc_connectivity_hint(e, vault_id)
+        extra = f"\n\n{hint}" if hint else ""
+        env.add_reply(f"❌ Unexpected error during loan repayment\n\n**Error:** {e}{extra}")
 
 
 def process_claims(vault_id: str) -> None:
@@ -350,4 +392,6 @@ def process_claims(vault_id: str) -> None:
 
     except Exception as e:
         logger.error("process_claims failed: %s", e, exc_info=True)
-        env.add_reply(f"❌ Unexpected error during claims processing\n\n**Error:** {e}")
+        hint = _rpc_connectivity_hint(e, vault_id)
+        extra = f"\n\n{hint}" if hint else ""
+        env.add_reply(f"❌ Unexpected error during claims processing\n\n**Error:** {e}{extra}")

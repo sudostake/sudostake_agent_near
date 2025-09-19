@@ -16,6 +16,7 @@ T = TypeVar("T")
 # GLOBAL STATE
 # ──────────────────────────────────────────────────────────────
 # TODO move to fastnear.com
+# Default NEAR RPC endpoints per network
 _DEFAULT_RPC = {
     "mainnet": "https://rpc.mainnet.near.org",
     "testnet": "https://rpc.testnet.near.org",
@@ -119,9 +120,8 @@ def get_explorer_url() -> str:
 def get_rpc_addr(network: Optional[str] = None) -> str:
     """Return the NEAR RPC endpoint for the active network.
 
-    If ``network`` is None, reads ``NEAR_NETWORK`` from the environment.
-    Raises a RuntimeError when the value is missing or invalid, matching
-    the messaging used elsewhere in helpers.
+    Selects from built-in defaults using NEAR_NETWORK. This project does not
+    accept custom RPC overrides; only NEAR_NETWORK is honored.
     """
     net = network or os.getenv("NEAR_NETWORK")
     if net not in _DEFAULT_RPC:
@@ -194,7 +194,7 @@ def init_near(env: Environment) -> NearClient:
 
     account_id  = os.getenv("NEAR_ACCOUNT_ID")
     private_key = os.getenv("NEAR_PRIVATE_KEY")
-    rpc_addr    = _DEFAULT_RPC[network]
+    rpc_addr    = get_rpc_addr(network)
 
     # For headless signing, we need both account_id and private_key
     if account_id and private_key:
