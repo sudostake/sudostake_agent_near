@@ -92,9 +92,6 @@ def _map_repay_panic_message(failure: Dict[str, Any], vault_id: str) -> Optional
 
 # process_claims is factored into its own module; see tools/process_claims.py
 
-
-# Rendering helpers moved to tools/process_claims.py
-
 # -----------------------------------------------------------------------------
 # Internal helpers — RPC connectivity hints
 # -----------------------------------------------------------------------------
