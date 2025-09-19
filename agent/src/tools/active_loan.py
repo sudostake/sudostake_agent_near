@@ -42,9 +42,26 @@ YOCTO_1: int = 1
 # Internal helpers — panic mapping
 # -----------------------------------------------------------------------------
 
+def _failure_text(failure: Dict[str, Any]) -> str:
+    """Extract the most relevant error text from a contract failure object.
+
+    Prefers the inner FunctionCallError.ExecutionError when present; otherwise
+    falls back to a JSON dump for visibility.
+    """
+    try:
+        if isinstance(failure, dict):
+            fce = failure.get("FunctionCallError")
+            if isinstance(fce, dict):
+                exec_err = fce.get("ExecutionError")
+                if isinstance(exec_err, str):
+                    return exec_err
+    except Exception:
+        pass
+    return json.dumps(failure)
+
 def _map_repay_panic_message(failure: Dict[str, Any], vault_id: str) -> Optional[str]:
     """Return a friendly message for known repay_loan panics or None."""
-    s = json.dumps(failure)
+    s = _failure_text(failure)
     if "Requires attached deposit of exactly 1 yoctoNEAR" in s:
         return (
             "❌ Requires exactly 1 yoctoNEAR attached deposit.\n"
@@ -80,7 +97,7 @@ def _map_process_claims_panic_message(
 ) -> Optional[str]:
     """Return a friendly message for known process_claims panics or None."""
     try:
-        s = json.dumps(failure)
+        s = _failure_text(failure)
 
         # Not expired yet
         m = re.search(r"Liquidation not allowed until (\d+)", s)
@@ -103,8 +120,8 @@ def _map_process_claims_panic_message(
             )
 
         # Processing lock busy
-        # Matches: Vault busy with "ProcessKind" or without quotes
-        m2 = re.search(r'Vault busy with "?([A-Za-z]+)"?', s)
+        # Matches: Vault busy with "ProcessKind"  OR  Vault busy with ProcessKind
+        m2 = re.search(r"Vault\s+busy\s+with\s+\"?([A-Za-z]+)\"?", s)
         if m2:
             kind = m2.group(1)
             return (
@@ -128,6 +145,18 @@ def _map_process_claims_panic_message(
 
 
 # -----------------------------------------------------------------------------
+# Internal helpers — shared
+# -----------------------------------------------------------------------------
+
+def _index_vault_best_effort(logger: Logger, vault_id: str, tx_hash: str) -> None:
+    """Attempt to index the vault; log a warning on failure without raising."""
+    try:
+        index_vault_to_firebase(vault_id, tx_hash)
+    except Exception as e:
+        logger.warning("Failed to index vault to Firebase: %s", e, exc_info=True)
+
+
+# -----------------------------------------------------------------------------
 # Internal helpers — RPC connectivity hints
 # -----------------------------------------------------------------------------
 
@@ -136,7 +165,7 @@ def _rpc_connectivity_hint(ex: Exception, vault_id: str) -> Optional[str]:
 
     Detects common network resolution/connection failures and suggests:
     - Ensuring NEAR_NETWORK matches the vault suffix
-    - Overriding the RPC via NEAR_RPC_ADDR
+    - Checking local network/DNS settings
     """
     s = str(ex)
     indicators = (
@@ -154,9 +183,6 @@ def _rpc_connectivity_hint(ex: Exception, vault_id: str) -> Optional[str]:
     # Guess desired network from the vault id
     want_testnet = ".testnet" in vault_id
     suggested_network = "testnet" if want_testnet else "mainnet"
-    example_rpc = (
-        "https://rpc.testnet.near.org" if want_testnet else "https://rpc.mainnet.near.org"
-    )
     current_net = os.getenv("NEAR_NETWORK") or "unset"
 
     return (
@@ -218,10 +244,7 @@ def repay_loan(vault_id: str) -> None:
             return
         
         # Index the updated vault via backend API
-        try:
-            index_vault_to_firebase(vault_id, tx.transaction.hash)
-        except Exception as e:
-            logger.warning("Failed to index vault to Firebase: %s", e, exc_info=True)
+        _index_vault_best_effort(logger, vault_id, tx.transaction.hash)
         
         explorer = get_explorer_url()
         env.add_reply(
@@ -287,10 +310,7 @@ def process_claims(vault_id: str) -> None:
             return
 
         # Index the updated vault via backend API (best-effort)
-        try:
-            index_vault_to_firebase(vault_id, tx.transaction.hash)
-        except Exception as e:
-            logger.warning("Failed to index vault to Firebase: %s", e, exc_info=True)
+        _index_vault_best_effort(logger, vault_id, tx.transaction.hash)
 
         explorer = get_explorer_url()
 

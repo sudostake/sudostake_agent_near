@@ -361,3 +361,213 @@ def test_process_claims_runtime_error(monkeypatch, mock_setup):
     msg = env.add_reply.call_args[0][0]
     assert "Unexpected error" in msg
     assert "boom" in msg
+
+
+# ───────────────── additional coverage for process_claims ─────────────────
+
+def _failure_with_exec_error(message: str) -> dict:
+    return {
+        "Failure": {
+            "ActionError": {
+                "kind": {
+                    "FunctionCallError": {"ExecutionError": message}
+                }
+            }
+        }
+    }
+
+
+def test_process_claims_lock_busy_mapping_no_quotes(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="tx_busy"),
+        logs=[],
+        status=_failure_with_exec_error("Vault busy with ProcessClaims"),
+    ))
+
+    active_loan.process_claims("vault-busy.factory.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "Vault is busy" in msg
+    assert "ProcessClaims" in msg
+
+
+def test_process_claims_lock_busy_mapping_with_quotes(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="tx_busy2"),
+        logs=[],
+        status=_failure_with_exec_error('Vault busy with "RepayLoan"'),
+    ))
+
+    active_loan.process_claims("vault-busy2.factory.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "Vault is busy" in msg
+    assert "RepayLoan" in msg
+
+
+def test_process_claims_missing_one_yocto(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="tx_yocto"),
+        logs=[],
+        status=_failure_with_exec_error("Requires attached deposit of exactly 1 yoctoNEAR"),
+    ))
+
+    active_loan.process_claims("vault-yocto.factory.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "1 yoctoNEAR" in msg
+    assert "attaches it automatically" in msg
+
+
+def test_process_claims_no_accepted_offer(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="tx_no_offer"),
+        logs=[],
+        status=_failure_with_exec_error("No accepted offer found"),
+    ))
+
+    active_loan.process_claims("vault-nooffer.factory.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "No active loan" in msg or "No accepted offer" in msg
+
+
+def test_process_claims_completion_event_json_shows_total_repaid(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+
+    logs = [
+        event_json("liquidation_complete", {"total_repaid": "5000000000000000000000000"})
+    ]
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="tx_done_json"),
+        logs=logs,
+        status={"SuccessValue": ""},
+    ))
+
+    active_loan.process_claims("vault-done-json.factory.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "Liquidation Complete" in msg
+    assert "Total repaid: `5000000000000000000000000` yoctoNEAR" in msg
+
+
+def test_process_claims_started_event_json_shows_lender_and_time(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+    monkeypatch.setattr(active_loan, "format_near_timestamp", lambda ns: "2025-01-02 03:04 UTC")
+
+    logs = [
+        event_json("liquidation_started", {"lender": "alice.testnet", "at": "1700000000000000000"}),
+        event_json("liquidation_progress", {"reason": "awaiting unstake"}),
+    ]
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="tx_started_json"),
+        logs=logs,
+        status={"SuccessValue": ""},
+    ))
+
+    active_loan.process_claims("vault-start.factory.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "Liquidation started" in msg
+    assert "alice.testnet" in msg
+    assert "2025-01-02 03:04 UTC" in msg
+
+
+def test_process_claims_unstake_failed_event_json_details(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+
+    logs = [
+        event_json("liquidation_progress", {"reason": "awaiting unstake"}),
+        event_json("unstake_failed", {"validator": "val.poolv1.near", "amount": "42"}),
+    ]
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="tx_uf_json"),
+        logs=logs,
+        status={"SuccessValue": ""},
+    ))
+
+    active_loan.process_claims("vault-uf.factory.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "unstake attempt failed" in msg
+    assert "val.poolv1.near" in msg
+    assert "Amount: `42` yoctoNEAR" in msg
+
+
+def test_process_claims_progress_without_reason(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+
+    logs = [
+        event_json("liquidation_progress", {}),
+    ]
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="tx_prog_noreason"),
+        logs=logs,
+        status={"SuccessValue": ""},
+    ))
+
+    active_loan.process_claims("vault-prog2.factory.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "Claims Processing In Progress" in msg
+    assert "Reason:" not in msg
+
+
+def test_process_claims_rpc_hint_on_dns_error(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+
+    # Enable signing; intentionally mis-set network to see hint
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setenv("NEAR_NETWORK", "mainnet")
+
+    def raise_dns_error(*args, **kwargs):
+        raise RuntimeError("getaddrinfo ENOTFOUND rpc")
+
+    mock_near.call = AsyncMock(side_effect=raise_dns_error)
+
+    active_loan.process_claims("vault-dns.factory.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "RPC appears unreachable" in msg
+    assert "NEAR_NETWORK" in msg
