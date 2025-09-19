@@ -26,6 +26,7 @@ from helpers import (
     find_event_data,
     YOCTO_FACTOR,
     index_vault_to_firebase,
+    is_rpc_connectivity_error,
 )
 
 # Import active_loan as a module to use its format helper;
@@ -40,17 +41,6 @@ from . import active_loan as active_loan_mod
 
 GAS_300_TGAS: int = 300_000_000_000_000
 YOCTO_1: int = 1
-
-# Common substrings that indicate RPC connectivity failures
-_RPC_ERROR_INDICATORS: tuple[str, ...] = (
-    "RPC not available",
-    "nodename nor servname",
-    "Name or service not known",
-    "getaddrinfo",
-    "Failed to establish a new connection",
-    "Max retries exceeded",
-    "Temporary failure in name resolution",
-)
 
 # Precompiled patterns for panic mapping
 _RE_LIQ_NOT_ALLOWED = re.compile(r"Liquidation not allowed until (\d+)")
@@ -245,8 +235,7 @@ def _render_progress_lines(logs: Logs) -> list[str]:
 # -----------------------------------------------------------------------------
 
 def _rpc_connectivity_hint(ex: Exception, vault_id: str) -> Optional[str]:
-    s = str(ex)
-    if not any(x in s for x in _RPC_ERROR_INDICATORS):
+    if not is_rpc_connectivity_error(ex):
         return None
 
     want_testnet = ".testnet" in vault_id

@@ -322,3 +322,22 @@ def format_firestore_timestamp(ts: Union[Dict[str, Any], str]) -> str:
         return ts
     dt = datetime.fromtimestamp(ts["_seconds"], tz=timezone.utc)
     return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+# ──────────────────────────────────────────────────────────────
+# RPC connectivity detection
+# ──────────────────────────────────────────────────────────────
+
+_RPC_ERROR_INDICATORS: tuple[str, ...] = (
+    "RPC not available",
+    "nodename nor servname",
+    "Name or service not known",
+    "getaddrinfo",
+    "Failed to establish a new connection",
+    "Max retries exceeded",
+    "Temporary failure in name resolution",
+)
+
+def is_rpc_connectivity_error(ex: Union[Exception, str]) -> bool:
+    """Return True if the exception/string looks like an RPC/DNS connectivity error."""
+    s = str(ex)
+    return any(ind in s for ind in _RPC_ERROR_INDICATORS)

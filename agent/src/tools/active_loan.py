@@ -26,6 +26,7 @@ from helpers import (
     index_vault_to_firebase,
     # Re-export for process_claims and tests that monkeypatch via tools.active_loan
     format_near_timestamp,
+    is_rpc_connectivity_error,
 )
 
 # -----------------------------------------------------------------------------
@@ -103,17 +104,7 @@ def _rpc_connectivity_hint(ex: Exception, vault_id: str) -> Optional[str]:
     - Ensuring NEAR_NETWORK matches the vault suffix
     - Checking local network/DNS settings
     """
-    s = str(ex)
-    indicators = (
-        "RPC not available",
-        "nodename nor servname",
-        "Name or service not known",
-        "getaddrinfo",
-        "Failed to establish a new connection",
-        "Max retries exceeded",
-        "Temporary failure in name resolution",
-    )
-    if not any(x in s for x in indicators):
+    if not is_rpc_connectivity_error(ex):
         return None
 
     # Guess desired network from the vault id
