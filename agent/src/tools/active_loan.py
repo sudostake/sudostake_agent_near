@@ -93,18 +93,6 @@ def _map_repay_panic_message(failure: Dict[str, Any], vault_id: str) -> Optional
 ## process_claims is factored into its own module; see tools/process_claims.py
 
 
-# -----------------------------------------------------------------------------
-# Internal helpers — shared
-# -----------------------------------------------------------------------------
-
-def _index_vault_best_effort(logger: Logger, vault_id: str, tx_hash: str) -> None:
-    """Attempt to index the vault; log a warning on failure without raising."""
-    try:
-        index_vault_to_firebase(vault_id, tx_hash)
-    except Exception as e:
-        logger.warning("Failed to index vault to Firebase: %s", e, exc_info=True)
-
-
 # Rendering helpers moved to tools/process_claims.py
 
 # -----------------------------------------------------------------------------
@@ -194,8 +182,11 @@ def repay_loan(vault_id: str) -> None:
             )
             return
         
-        # Index the updated vault via backend API
-        _index_vault_best_effort(logger, vault_id, tx.transaction.hash)
+        # Index the updated vault via backend API (best-effort)
+        try:
+            index_vault_to_firebase(vault_id, tx.transaction.hash)
+        except Exception as e:
+            logger.warning("Failed to index vault to Firebase: %s", e, exc_info=True)
         
         explorer = get_explorer_url()
         env.add_reply(
