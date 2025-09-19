@@ -15,9 +15,7 @@ Both functions:
 from typing import Any, Dict, Optional
 import os
 import json
-import re
 from logging import Logger
-from decimal import Decimal
 from .context import get_env, get_near, get_logger
 from py_near.models import TransactionResult
 from helpers import (
@@ -26,10 +24,8 @@ from helpers import (
     log_contains_event,
     get_failure_message_from_tx_status,
     index_vault_to_firebase,
+    # Re-export for process_claims and tests that monkeypatch via tools.active_loan
     format_near_timestamp,
-    signing_mode,
-    find_event_data,
-    YOCTO_FACTOR,
 )
 
 # -----------------------------------------------------------------------------
@@ -94,56 +90,7 @@ def _map_repay_panic_message(failure: Dict[str, Any], vault_id: str) -> Optional
     return None
 
 
-def _map_process_claims_panic_message(
-    failure: Dict[str, Any], vault_id: str
-) -> Optional[str]:
-    """Return a friendly message for known process_claims panics or None."""
-    try:
-        s = _failure_text(failure)
-
-        # Not expired yet
-        m = re.search(r"Liquidation not allowed until (\d+)", s)
-        if m:
-            ts_ns = int(m.group(1))
-            when = format_near_timestamp(ts_ns)
-            return (
-                "⏳ Liquidation not allowed yet.\n"
-                f"- Earliest at: `{when}`\n"
-                f"- Vault: `{vault_id}`\n"
-                "- Tip: Run this again after the deadline."
-            )
-
-        # No accepted offer
-        if "No accepted offer found" in s:
-            return (
-                "ℹ️ No active loan to liquidate.\n"
-                f"- Vault: `{vault_id}`\n"
-                "- There is no accepted offer; liquidation is not applicable."
-            )
-
-        # Processing lock busy
-        # Matches: Vault busy with "ProcessKind"  OR  Vault busy with ProcessKind
-        m2 = re.search(r"Vault\s+busy\s+with\s+\"?([A-Za-z]+)\"?", s)
-        if m2:
-            kind = m2.group(1)
-            return (
-                "⏳ Vault is busy processing another step.\n"
-                f"- Operation: `{kind}`\n"
-                f"- Vault: `{vault_id}`\n"
-                "- Tip: Wait for callbacks to finish, then try again."
-            )
-
-        # Missing 1 yocto
-        if "Requires attached deposit of exactly 1 yoctoNEAR" in s:
-            return (
-                "❌ Requires exactly 1 yoctoNEAR attached deposit.\n"
-                "This tool attaches it automatically; please retry."
-            )
-    except Exception:
-        # Fall through to generic handling at call site
-        return None
-
-    return None
+## process_claims is factored into its own module; see tools/process_claims.py
 
 
 # -----------------------------------------------------------------------------
@@ -157,6 +104,8 @@ def _index_vault_best_effort(logger: Logger, vault_id: str, tx_hash: str) -> Non
     except Exception as e:
         logger.warning("Failed to index vault to Firebase: %s", e, exc_info=True)
 
+
+# Rendering helpers moved to tools/process_claims.py
 
 # -----------------------------------------------------------------------------
 # Internal helpers — RPC connectivity hints
@@ -262,179 +211,6 @@ def repay_loan(vault_id: str) -> None:
 
 
 def process_claims(vault_id: str) -> None:
-    """
-    Process claims for the given vault.
-
-    Behavior:
-    - Calls `process_claims` on the vault with 1 yoctoNEAR.
-    - Parses logs for liquidation lifecycle events and surfaces actionable guidance.
-    - Handles contract panics (e.g., not yet overdue, lock busy) with friendly messaging.
-    - Indexes the vault to Firebase for fresh UI state.
-
-    Args:
-      vault_id: NEAR account ID of the target vault (e.g., "vault-0.factory.testnet").
-    """
-    env = get_env()
-    
-    # Require headless signing to send a state-changing tx
-    if signing_mode() != "headless":
-        env.add_reply(
-            "⚠️ No signing keys available. Add `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` "
-            "to secrets, then try again."
-        )
-        return
-
-    near = get_near()
-    logger: Logger = get_logger()
-
-    try:
-        tx: TransactionResult = run_coroutine(
-            near.call(
-                contract_id=vault_id,
-                method_name="process_claims",
-                args={},
-                gas=GAS_300_TGAS,  # drive callbacks
-                amount=YOCTO_1,    # 1 yoctoNEAR
-            )
-        )
-
-        # Contract panic? Provide helpful mapping when possible.
-        failure = get_failure_message_from_tx_status(tx.status)
-        if failure:
-            mapped = _map_process_claims_panic_message(failure, vault_id)
-            if mapped:
-                env.add_reply(mapped)
-            else:
-                env.add_reply(
-                    "❌ Processing claims failed due to contract panic:\n\n"
-                    f"> {json.dumps(failure, indent=2)}"
-                )
-            return
-
-        # Index the updated vault via backend API (best-effort)
-        _index_vault_best_effort(logger, vault_id, tx.transaction.hash)
-
-        explorer = get_explorer_url()
-
-        # Interpret logs for user-facing status
-        started = log_contains_event(tx.logs, "liquidation_started")
-        completed = log_contains_event(tx.logs, "liquidation_complete")
-        unstake_added = log_contains_event(tx.logs, "unstake_recorded")
-        waiting = log_contains_event(tx.logs, "liquidation_progress")
-        unstake_failed = log_contains_event(tx.logs, "unstake_failed")
-
-        if completed:
-            # Try to surface total repaid from event payload
-            completion_data = find_event_data(tx.logs, "liquidation_complete")
-            total_repaid = (completion_data or {}).get("total_repaid")
-            extra = ""
-            if total_repaid:
-                # Always include raw yoctoNEAR to preserve precision and tests
-                extra = f"\n- 💰 Total repaid: `{total_repaid}` yoctoNEAR"
-                # Append human-readable NEAR approximation
-                try:
-                    near_amt = (Decimal(total_repaid) / YOCTO_FACTOR).quantize(Decimal("0.000001"))
-                    extra += f" (~{near_amt} NEAR)"
-                except Exception:
-                    pass
-            env.add_reply(
-                f"✅ **Liquidation Complete** — lender fully repaid.{extra}\n"
-                f"- 🏦 Vault: [`{vault_id}`]({explorer}/accounts/{vault_id})\n"
-                f"- 🔗 Tx: [{tx.transaction.hash}]({explorer}/transactions/{tx.transaction.hash})"
-            )
-            return
-
-        # Partial progress path
-        progress_lines: list[str] = []
-        if started:
-            started_data = find_event_data(tx.logs, "liquidation_started")
-            started_when = None
-            try:
-                at_value = (started_data or {}).get("at") if started_data else None
-                if at_value is not None:
-                    at_ns = int(at_value)
-                    if at_ns > 0:
-                        started_when = format_near_timestamp(at_ns)
-            except Exception:
-                started_when = None
-            lender = (started_data or {}).get("lender") if started_data else None
-            line = "• Liquidation started."
-            if lender:
-                line += f" Lender: `{lender}`."
-            if started_when:
-                line += f" At: `{started_when}`."
-            progress_lines.append(line)
-        if unstake_added:
-            progress_lines.append(
-                "• Unstake recorded — wait ~4 epochs for NEAR to mature."
-            )
-        if waiting:
-            progress_lines.append(
-                "• Waiting for available/matured NEAR; re-run to continue."
-            )
-        if unstake_failed:
-            failed = find_event_data(tx.logs, "unstake_failed") or {}
-            v = failed.get("validator")
-            amt = failed.get("amount")
-            msg = "• Warning: an unstake attempt failed on a validator."
-            if v:
-                msg += f" Validator: `{v}`."
-            if amt:
-                # Always show raw yoctoNEAR and append readable NEAR when possible
-                amount_phrase = f" Amount: `{amt}` yoctoNEAR"
-                try:
-                    near_amt = (Decimal(amt) / YOCTO_FACTOR).quantize(Decimal("0.000001"))
-                    amount_phrase += f" (~{near_amt} NEAR)"
-                except Exception:
-                    pass
-                msg += amount_phrase + "."
-            progress_lines.append(msg)
-
-        # Attach granular details when available
-        if waiting:
-            data = find_event_data(tx.logs, "liquidation_progress")
-            reason = (data or {}).get("reason")
-            if isinstance(reason, str) and reason:
-                progress_lines.append(f"• Reason: {reason}.")
-        if unstake_added:
-            data = find_event_data(tx.logs, "unstake_recorded")
-            if data:
-                validator = data.get("validator")
-                amount = data.get("amount")
-                epoch = data.get("epoch_height")
-                detail = "• Unstake recorded"
-                if validator:
-                    detail += f" on `{validator}`"
-                if amount:
-                    detail += f" amount `{amount}` yoctoNEAR"
-                    try:
-                        near_amt = (Decimal(amount) / YOCTO_FACTOR).quantize(Decimal("0.000001"))
-                        detail += f" (~{near_amt} NEAR)"
-                    except Exception:
-                        pass
-                if epoch:
-                    detail += f" at epoch `{epoch}`"
-                progress_lines.append(detail + ".")
-
-        if progress_lines:
-            env.add_reply(
-                "🔄 **Claims Processing In Progress**\n"
-                f"- 🏦 Vault: [`{vault_id}`]({explorer}/accounts/{vault_id})\n"
-                f"- 🔗 Tx: [{tx.transaction.hash}]({explorer}/transactions/{tx.transaction.hash})\n"
-                + "\n".join(progress_lines)
-            )
-            return
-
-        # Fallback generic success
-        env.add_reply(
-            f"✅ Processed claims step.\n"
-            f"- 🏦 Vault: [`{vault_id}`]({explorer}/accounts/{vault_id})\n"
-            f"- 🔗 Tx: [{tx.transaction.hash}]({explorer}/transactions/{tx.transaction.hash})\n"
-            "- If not fully repaid, run again as more NEAR matures."
-        )
-
-    except Exception as e:
-        logger.error("process_claims failed: %s", e, exc_info=True)
-        hint = _rpc_connectivity_hint(e, vault_id)
-        extra = f"\n\n{hint}" if hint else ""
-        env.add_reply(f"❌ Unexpected error during claims processing\n\n**Error:** {e}{extra}")
+    """Backwards-compatible wrapper around tools.process_claims.process_claims."""
+    from .process_claims import process_claims as _impl
+    _impl(vault_id)
