@@ -35,18 +35,37 @@ from . import active_loan as active_loan_mod
 
 
 # -----------------------------------------------------------------------------
-# Constants
+# Constants & Types
 # -----------------------------------------------------------------------------
 
 GAS_300_TGAS: int = 300_000_000_000_000
 YOCTO_1: int = 1
+
+# Common substrings that indicate RPC connectivity failures
+_RPC_ERROR_INDICATORS: tuple[str, ...] = (
+    "RPC not available",
+    "nodename nor servname",
+    "Name or service not known",
+    "getaddrinfo",
+    "Failed to establish a new connection",
+    "Max retries exceeded",
+    "Temporary failure in name resolution",
+)
+
+# Precompiled patterns for panic mapping
+_RE_LIQ_NOT_ALLOWED = re.compile(r"Liquidation not allowed until (\d+)")
+_RE_VAULT_BUSY = re.compile(r"Vault\s+busy\s+with\s+\"?([A-Za-z]+)\"?")
+
+# Simple aliases for readability
+Json = Dict[str, Any]
+Logs = list[str]
 
 
 # -----------------------------------------------------------------------------
 # Failure parsing and mapping
 # -----------------------------------------------------------------------------
 
-def _failure_text(failure: Dict[str, Any]) -> str:
+def _failure_text(failure: Json) -> str:
     """Extract the most relevant error text from a contract failure object.
 
     Prefers the inner FunctionCallError.ExecutionError when present; otherwise
@@ -64,15 +83,13 @@ def _failure_text(failure: Dict[str, Any]) -> str:
     return json.dumps(failure)
 
 
-def _map_process_claims_panic_message(
-    failure: Dict[str, Any], vault_id: str
-) -> Optional[str]:
+def _map_process_claims_panic_message(failure: Json, vault_id: str) -> Optional[str]:
     """Return a friendly message for known process_claims panics or None."""
     try:
         s = _failure_text(failure)
 
         # Not expired yet
-        m = re.search(r"Liquidation not allowed until (\d+)", s)
+        m = _RE_LIQ_NOT_ALLOWED.search(s)
         if m:
             ts_ns = int(m.group(1))
             when = active_loan_mod.format_near_timestamp(ts_ns)
@@ -92,7 +109,7 @@ def _map_process_claims_panic_message(
             )
 
         # Processing lock busy — matches quoted or unquoted variants
-        m2 = re.search(r"Vault\s+busy\s+with\s+\"?([A-Za-z]+)\"?", s)
+        m2 = _RE_VAULT_BUSY.search(s)
         if m2:
             kind = m2.group(1)
             return (
@@ -116,20 +133,22 @@ def _map_process_claims_panic_message(
 
 
 # -----------------------------------------------------------------------------
-# Shared helpers
+# Rendering helpers
 # -----------------------------------------------------------------------------
 
 # Removed _index_vault_best_effort; call index_vault_to_firebase directly with best-effort handling.
 
 
-def _header_lines(explorer: str, vault_id: str, tx_hash: str) -> str:
+def _render_header_lines(explorer: str, vault_id: str, tx_hash: str) -> str:
+    """Return the standard vault + tx lines used in replies."""
     return (
         f"- 🏦 Vault: [`{vault_id}`]({explorer}/accounts/{vault_id})\n"
         f"- 🔗 Tx: [{tx_hash}]({explorer}/transactions/{tx_hash})"
     )
 
 
-def _completion_extra_from_logs(logs: list[str]) -> str:
+def _render_completion_extra(logs: Logs) -> str:
+    """Return the 'Total repaid' line (yoctoNEAR + human NEAR) when available."""
     completion_data = find_event_data(logs, "liquidation_complete")
     total_repaid = (completion_data or {}).get("total_repaid")
     extra = ""
@@ -145,7 +164,8 @@ def _completion_extra_from_logs(logs: list[str]) -> str:
     return extra
 
 
-def _build_progress_lines(logs: list[str]) -> list[str]:
+def _render_progress_lines(logs: Logs) -> list[str]:
+    """Build a chronological list of progress bullets from logs."""
     lines: list[str] = []
 
     # Started
@@ -228,16 +248,7 @@ def _build_progress_lines(logs: list[str]) -> list[str]:
 
 def _rpc_connectivity_hint(ex: Exception, vault_id: str) -> Optional[str]:
     s = str(ex)
-    indicators = (
-        "RPC not available",
-        "nodename nor servname",
-        "Name or service not known",
-        "getaddrinfo",
-        "Failed to establish a new connection",
-        "Max retries exceeded",
-        "Temporary failure in name resolution",
-    )
-    if not any(x in s for x in indicators):
+    if not any(x in s for x in _RPC_ERROR_INDICATORS):
         return None
 
     want_testnet = ".testnet" in vault_id
@@ -319,29 +330,29 @@ def process_claims(vault_id: str) -> None:
         completed = log_contains_event(tx.logs, "liquidation_complete")
 
         # Partial progress path first
-        progress_lines = _build_progress_lines(tx.logs)
+        progress_lines = _render_progress_lines(tx.logs)
 
         # Show progress first when present; handle completion afterwards
         if progress_lines:
             env.add_reply(
                 "🔄 **Claims Processing In Progress**\n"
-                + _header_lines(explorer, vault_id, tx.transaction.hash) + "\n"
+                + _render_header_lines(explorer, vault_id, tx.transaction.hash) + "\n"
                 + "\n".join(progress_lines)
             )
             return
 
         if completed:
-            extra = _completion_extra_from_logs(tx.logs)
+            extra = _render_completion_extra(tx.logs)
             env.add_reply(
                 f"✅ **Liquidation Complete** — lender fully repaid.{extra}\n"
-                + _header_lines(explorer, vault_id, tx.transaction.hash)
+                + _render_header_lines(explorer, vault_id, tx.transaction.hash)
             )
             return
 
         # Fallback generic success
         env.add_reply(
             f"✅ Processed claims step.\n"
-            + _header_lines(explorer, vault_id, tx.transaction.hash) + "\n"
+            + _render_header_lines(explorer, vault_id, tx.transaction.hash) + "\n"
             "- If not fully repaid, run again as more NEAR matures."
         )
 
