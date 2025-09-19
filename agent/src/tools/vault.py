@@ -80,6 +80,7 @@ def show_help_menu() -> None:
         
         __Active Loan__
         • Repay loan on <vault>  
+        • Process claims on <vault>  
         
         __SudoStake Docs__
         • Query SudoStake Docs  

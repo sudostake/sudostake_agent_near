@@ -33,9 +33,8 @@ def query_sudostake_docs() -> None:
     except Exception:
         pass
 
-    # Prefer readable snippets by default; allow JSON via env or during tests
-    debug_json = os.getenv("SUDOSTAKE_DOCS_JSON_DEBUG", "").lower() in ("1", "true", "yes") \
-                 or ("PYTEST_CURRENT_TEST" in os.environ)
+    # Prefer readable snippets by default; switch to JSON during tests
+    debug_json = ("PYTEST_CURRENT_TEST" in os.environ)
 
     if debug_json:
         env.add_reply(json.dumps(chunks, indent=2))

@@ -16,6 +16,7 @@ T = TypeVar("T")
 # GLOBAL STATE
 # ──────────────────────────────────────────────────────────────
 # TODO move to fastnear.com
+# Default NEAR RPC endpoints per network
 _DEFAULT_RPC = {
     "mainnet": "https://rpc.mainnet.near.org",
     "testnet": "https://rpc.testnet.near.org",
@@ -38,11 +39,8 @@ USDC_CONTRACTS = {
     "testnet": "usdc.tkn.primitives.testnet",
 }
 
-# Backend API base (migrated from Firebase Functions to Vercel)
-# Reads optional env var SUDOSTAKE_WEB_BASE_URL, falling back to the
-# provided Vercel deployment base and ensuring we target Next.js /api routes.
-_web_base = os.getenv("SUDOSTAKE_WEB_BASE_URL", "http://v0-sudo-stake-near-web.vercel.app")
-_FIREBASE_VAULTS_API = _web_base.rstrip("/") if _web_base.rstrip("/").endswith("/api") else _web_base.rstrip("/") + "/api"
+# Backend API base (fixed)
+_FIREBASE_VAULTS_API = "http://v0-sudo-stake-near-web.vercel.app/api"
 
 # Define current vault_minting_fee
 # TODO Later we can dynamically get this from the factory contract itself
@@ -65,14 +63,7 @@ _VECTOR_STORE_ID: str = "vs_ecd9ba192396493984d66feb" # default vector store ID
 def signing_mode()    -> Optional[str]: return _signing_mode
 def account_id()      -> Optional[str]: return _account_id
 def vector_store_id() -> str:
-    """Return the vector-store ID with safe env override.
-
-    Respects `SUDOSTAKE_VECTOR_STORE_ID` when set to a non-empty value;
-    otherwise falls back to the baked-in `_VECTOR_STORE_ID`.
-    """
-    env_id = os.getenv("SUDOSTAKE_VECTOR_STORE_ID")
-    if env_id is not None and env_id.strip():
-        return env_id
+    """Return the vector-store ID."""
     return _VECTOR_STORE_ID
 def firebase_vaults_api() -> str:       return _FIREBASE_VAULTS_API
 # ──────────────────────────────────────────────────────────────
@@ -129,9 +120,8 @@ def get_explorer_url() -> str:
 def get_rpc_addr(network: Optional[str] = None) -> str:
     """Return the NEAR RPC endpoint for the active network.
 
-    If ``network`` is None, reads ``NEAR_NETWORK`` from the environment.
-    Raises a RuntimeError when the value is missing or invalid, matching
-    the messaging used elsewhere in helpers.
+    Selects from built-in defaults using NEAR_NETWORK. This project does not
+    accept custom RPC overrides; only NEAR_NETWORK is honored.
     """
     net = network or os.getenv("NEAR_NETWORK")
     if net not in _DEFAULT_RPC:
@@ -204,7 +194,7 @@ def init_near(env: Environment) -> NearClient:
 
     account_id  = os.getenv("NEAR_ACCOUNT_ID")
     private_key = os.getenv("NEAR_PRIVATE_KEY")
-    rpc_addr    = _DEFAULT_RPC[network]
+    rpc_addr    = get_rpc_addr(network)
 
     # For headless signing, we need both account_id and private_key
     if account_id and private_key:
@@ -241,6 +231,42 @@ def log_contains_event(logs: list[str], event_name: str) -> bool:
         if event_name in log:
             return True
     return False
+
+
+def _parse_event_json(log: str) -> Optional[Dict[str, Any]]:
+    """Try to parse a single EVENT_JSON log line into a dict.
+
+    Expected format: 'EVENT_JSON: { "event": "...", "data": { ... } }'
+    Returns None if parsing fails.
+    """
+    try:
+        if "EVENT_JSON:" not in log:
+            return None
+        # Split at first occurrence to be robust to prefixes
+        _, json_part = log.split("EVENT_JSON:", 1)
+        json_part = json_part.strip()
+        if not json_part:
+            return None
+        return cast(Dict[str, Any], __import__("json").loads(json_part))
+    except Exception:
+        return None
+
+
+def find_event_data(logs: list[str], event_name: str) -> Optional[Dict[str, Any]]:
+    """Return the `data` payload for the first EVENT_JSON with matching `event`.
+
+    Falls back to None when no structured event is found.
+    """
+    for log in logs:
+        rec = _parse_event_json(log)
+        if not rec:
+            continue
+        if rec.get("event") == event_name:
+            data = rec.get("data")
+            if isinstance(data, dict):
+                return cast(Dict[str, Any], data)
+            return {}
+    return None
 
 
 def top_doc_chunks(env: Environment, vs_id: str, user_query: str, k: int = 6) -> List[Dict[str, Any]]:
@@ -296,3 +322,22 @@ def format_firestore_timestamp(ts: Union[Dict[str, Any], str]) -> str:
         return ts
     dt = datetime.fromtimestamp(ts["_seconds"], tz=timezone.utc)
     return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+# ──────────────────────────────────────────────────────────────
+# RPC connectivity detection
+# ──────────────────────────────────────────────────────────────
+
+_RPC_ERROR_INDICATORS: tuple[str, ...] = (
+    "RPC not available",
+    "nodename nor servname",
+    "Name or service not known",
+    "getaddrinfo",
+    "Failed to establish a new connection",
+    "Max retries exceeded",
+    "Temporary failure in name resolution",
+)
+
+def is_rpc_connectivity_error(ex: Union[Exception, str]) -> bool:
+    """Return True if the exception/string looks like an RPC/DNS connectivity error."""
+    s = str(ex)
+    return any(ind in s for ind in _RPC_ERROR_INDICATORS)

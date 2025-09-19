@@ -12,7 +12,8 @@ from . import (
     withdrawal,
     summary,
     liquidity_request,
-    active_loan
+    active_loan,
+    process_claims
 )
 
 # Register all tools here
@@ -45,7 +46,7 @@ def register_tools(env: Environment, near: NearClient) -> list[MCPTool]:
         liquidity_request.accept_liquidity_request,
         liquidity_request.view_lender_positions,
         active_loan.repay_loan,
-        # active_loan.process_claims,
+        process_claims.process_claims,
         docs.query_sudostake_docs
     ):
         registry.register_tool(tool)

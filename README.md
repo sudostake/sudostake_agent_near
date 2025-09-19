@@ -1,84 +1,83 @@
 # SudoStake Agent (NEAR)
 
-Simple, typed Python agent that helps you inspect and manage SudoStake vaults on NEAR. You can run it locally, test it quickly, and ship new builds with a single script.
+Typed Python agent to inspect and manage SudoStake vaults on NEAR. Runs locally in view‑only mode by default and can sign transactions when you provide keys.
 
-## Quickstart
-- Requirements: Python 3.9+, pip, and optionally the NEAR AI CLI (`nearai`) if you want to run interactively.
+The agent must be built once before interactive use. The build copies code into your local NEAR‑AI registry. After building, simply run `nearai agent interactive --local` (the CLI defaults to mainnet). Switch networks via your profile or set `NEAR_NETWORK` inline.
 
-1) Create a virtualenv and install deps
-   - `python3 -m venv .venv`
-   - `source .venv/bin/activate`
+## Requirements
+- Python 3.9+ and `pip`
+- Git
+- `jq` (for the build script)
+- Python package `semver` (for version bumping)
+- macOS/Linux shell (Bash)
+
+## Quick Start
+1) Clone and create a virtualenv
+   - `git clone <your-fork-or-repo-url>`
+   - `cd sudostake_agent_near`
+   - `python3 -m venv .venv && source .venv/bin/activate`
+2) Install dependencies (includes the `nearai` CLI)
    - `pip install -r requirements.txt`
+3) Install build prerequisites
+   - `pip install semver`
+   - macOS: `brew install jq`  •  Debian/Ubuntu: `sudo apt install -y jq`
+4) Build the agent (copies into `~/.nearai/registry/...`)
+   - `chmod +x agent/build.sh && ./agent/build.sh patch`
+5) Run
+   - View‑only: `nearai agent interactive --local`
+   - With signing: `source ~/.near_agent_profile && nearai agent interactive --local`
+   - Testnet inline override: `NEAR_NETWORK=testnet nearai agent interactive --local`
 
-2) Run tests
-   - `pytest -q`
+Tip: In the REPL, type `help` to see available commands.
 
-3) Build (optional)
-   - `./agent/build.sh patch`  (use `minor` or `major` to bump accordingly)
-   - Prereqs: `pip install semver`, and `jq` installed (`brew install jq` on macOS or `sudo apt install jq` on Debian/Ubuntu)
+## Signing Profile (optional)
+Create a single profile with your credentials and preferred network.
 
-4) Run the agent locally (interactive)
-   - As a vault owner: `source ~/.near_vault_owner_profile && nearai agent interactive --local`
-   - As a USDC lender: `source ~/.near_vault_lender_profile && nearai agent interactive --local`
-
-Notes
-- Without signing keys, the agent runs in read‑only mode and still answers queries (e.g., docs, views).
-- With signing keys, it can sign transactions (delegate, mint, withdraw, etc.).
-
-## Environment Variables (headless signing)
-Set these if you want the agent to sign transactions without a wallet prompt:
-
+Profile template (`~/.near_agent_profile`)
 ```
-export NEAR_NETWORK=testnet            # or mainnet
-export NEAR_ACCOUNT_ID=<account.testnet>
+# ~/.near_agent_profile
+export NEAR_NETWORK=mainnet            # or testnet
+export NEAR_ACCOUNT_ID=<your-account>
 export NEAR_PRIVATE_KEY=<ed25519:...>
 ```
+Usage: `source ~/.near_agent_profile && nearai agent interactive --local`
 
-If these are not set, the agent remains view‑only.
+## Developer Loop
+- Run tests: `pytest -q`
+- Edit code under `agent/src`
+- Rebuild: `./agent/build.sh patch` (or `minor` | `major`)
+- Run: `nearai agent interactive --local` (uses the latest build)
 
-### Example Profiles (dummy data)
-Save these files to your shell and source them before running interactively. Replace the dummy values with your own.
-
-Owner profile (`~/.near_vault_owner_profile`):
-```
-export NEAR_NETWORK=testnet
-export NEAR_ACCOUNT_ID=owner.demo.testnet
-export NEAR_PRIVATE_KEY=ed25519:1111111111111111111111111111111111111111111111111111111111111111
-```
-
-Lender profile (`~/.near_vault_lender_profile`):
-```
-export NEAR_NETWORK=testnet
-export NEAR_ACCOUNT_ID=lender.demo.testnet
-export NEAR_PRIVATE_KEY=ed25519:2222222222222222222222222222222222222222222222222222222222222222
-```
-
-## Build a Release
-The build script bumps a version and prepares an artifact.
-
-Prereqs:
-- `pip install semver`
-- macOS: `brew install jq`  (Debian/Ubuntu: `sudo apt install jq`)
-
-Run:
-```
-chmod +x ./agent/build.sh
-./agent/build.sh patch     # or: minor | major
-```
+## Docs Vector Store (optional)
+- Add `.md` files under `agent/docs/`
+- Ensure `nearai` CLI is configured
+- Build: `python agent/jobs/init_vector_store_job.py`
 
 ## Project Structure
-- `agent/src` — Agent code
-  - `agent/src/tools` — Domain tools (vault, delegation, liquidity, etc.)
-  - `agent/src/agent.py` — Entry point wired to NEAR AI runtime
-  - `agent/src/helpers.py` — Shared helpers (env, constants, formatting)
-- `agent/tests` — Pytest suite (fast, isolated)
-- `agent/jobs` — Optional maintenance jobs (e.g., vector store init)
-
-## Common Tasks
-- Run tests: `pytest -q`
-- Run interactively: `nearai agent interactive --local` (with a sourced profile)
-- Lint/type in your IDE: repo includes `pyrightconfig.json` and `.editorconfig`
+- `agent/src` — entrypoint (`agent.py`), helpers, tools
+- `agent/tests` — pytest suite
+- `agent/jobs` — ops jobs (e.g., vector store)
+- `agent/build.sh` — build and versioning
+- `agent/metadata.json` — stamped during build
 
 ## Troubleshooting
-- Pylance import resolution: the repo includes `pyrightconfig.json` with `extraPaths` so editors can resolve `agent/src` and `agent/jobs`.
-- SSL warning in tests: urllib3 may warn about LibreSSL; it’s harmless for local tests.
+- Initialization/network
+  - `nearai` defaults to mainnet; use a profile or inline `NEAR_NETWORK` to switch.
+  - This project uses built-in RPC URLs per network and does not accept custom RPC overrides.
+- CLI not found
+  - Activate venv and reinstall deps: `source .venv/bin/activate && pip install -r requirements.txt`.
+- Build errors (jq/semver)
+  - `pip install semver` and install `jq` via your package manager.
+- No docs found when building vector store
+  - Add Markdown files under `agent/docs/` first.
+
+## Security
+- Keep `NEAR_PRIVATE_KEY` secret; never commit it.
+- Prefer profile files and local shell secret management.
+
+## Configuration Policy
+- Only the following env vars are honored:
+  - `NEAR_NETWORK` (mainnet|testnet)
+  - `NEAR_ACCOUNT_ID`
+  - `NEAR_PRIVATE_KEY`
+- All other settings are static in the app and not overridden by env vars.
