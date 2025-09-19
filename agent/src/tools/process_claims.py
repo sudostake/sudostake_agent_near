@@ -136,8 +136,6 @@ def _map_process_claims_panic_message(failure: Json, vault_id: str) -> Optional[
 # Rendering helpers
 # -----------------------------------------------------------------------------
 
-# Removed _index_vault_best_effort; call index_vault_to_firebase directly with best-effort handling.
-
 
 def _render_header_lines(explorer: str, vault_id: str, tx_hash: str) -> str:
     """Return the standard vault + tx lines used in replies."""
