@@ -17,6 +17,7 @@ import os
 import json
 import re
 from logging import Logger
+from decimal import Decimal
 from .context import get_env, get_near, get_logger
 from py_near.models import TransactionResult
 from helpers import (
@@ -28,6 +29,7 @@ from helpers import (
     format_near_timestamp,
     signing_mode,
     find_event_data,
+    YOCTO_FACTOR,
 )
 
 # -----------------------------------------------------------------------------
@@ -325,7 +327,16 @@ def process_claims(vault_id: str) -> None:
             # Try to surface total repaid from event payload
             completion_data = find_event_data(tx.logs, "liquidation_complete")
             total_repaid = (completion_data or {}).get("total_repaid")
-            extra = f"\n- 💰 Total repaid: `{total_repaid}` yoctoNEAR" if total_repaid else ""
+            extra = ""
+            if total_repaid:
+                # Always include raw yoctoNEAR to preserve precision and tests
+                extra = f"\n- 💰 Total repaid: `{total_repaid}` yoctoNEAR"
+                # Append human-readable NEAR approximation
+                try:
+                    near_amt = (Decimal(total_repaid) / YOCTO_FACTOR).quantize(Decimal("0.000001"))
+                    extra += f" (~{near_amt} NEAR)"
+                except Exception:
+                    pass
             env.add_reply(
                 f"✅ **Liquidation Complete** — lender fully repaid.{extra}\n"
                 f"- 🏦 Vault: [`{vault_id}`]({explorer}/accounts/{vault_id})\n"
@@ -369,7 +380,14 @@ def process_claims(vault_id: str) -> None:
             if v:
                 msg += f" Validator: `{v}`."
             if amt:
-                msg += f" Amount: `{amt}` yoctoNEAR."
+                # Always show raw yoctoNEAR and append readable NEAR when possible
+                amount_phrase = f" Amount: `{amt}` yoctoNEAR"
+                try:
+                    near_amt = (Decimal(amt) / YOCTO_FACTOR).quantize(Decimal("0.000001"))
+                    amount_phrase += f" (~{near_amt} NEAR)"
+                except Exception:
+                    pass
+                msg += amount_phrase + "."
             progress_lines.append(msg)
 
         # Attach granular details when available
@@ -389,6 +407,11 @@ def process_claims(vault_id: str) -> None:
                     detail += f" on `{validator}`"
                 if amount:
                     detail += f" amount `{amount}` yoctoNEAR"
+                    try:
+                        near_amt = (Decimal(amount) / YOCTO_FACTOR).quantize(Decimal("0.000001"))
+                        detail += f" (~{near_amt} NEAR)"
+                    except Exception:
+                        pass
                 if epoch:
                     detail += f" at epoch `{epoch}`"
                 progress_lines.append(detail + ".")
