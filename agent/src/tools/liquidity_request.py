@@ -2,7 +2,7 @@ import json
 import requests
 import time
 
-from decimal import Decimal
+from decimal import Decimal, DecimalException, InvalidOperation
 from typing import List, TypedDict, cast, Any, Dict, Literal, Optional, Tuple
 from logging import Logger
 from datetime import datetime, timezone
@@ -185,7 +185,7 @@ def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any]) -> st
         if principal > 0 and duration_days > 0:
             apr_val = (interest / principal) * Decimal(365) / Decimal(duration_days) * 100
             apr_text = f"{_format_number(apr_val, 2)}%"
-    except Exception:
+    except (DecimalException, InvalidOperation, ZeroDivisionError):
         apr_text = "N/A"
 
     acc_ts = acc.get("accepted_at")
