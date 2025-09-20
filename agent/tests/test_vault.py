@@ -70,6 +70,120 @@ def with_liquidation(state):
     return state
 
 
+# ───────────────── transfer_ownership tests ─────────────────
+
+def event_json(event, data=None):
+    payload = {"event": event}
+    if data is not None:
+        payload["data"] = data
+    import json as _json
+    return f"EVENT_JSON:{_json.dumps(payload)}"
+
+
+def _failure_exec_error(msg: str) -> dict:
+    return {
+        "Failure": {
+            "ActionError": {
+                "kind": {
+                    "FunctionCallError": {"ExecutionError": msg}
+                }
+            }
+        }
+    }
+
+
+def test_transfer_ownership_not_headless(monkeypatch, mock_setup):
+    env, _ = mock_setup
+    monkeypatch.setattr(helpers, "_signing_mode", None, raising=False)
+
+    vault.transfer_ownership("vault-0.factory.testnet", "bob.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "can't sign transactions" in msg
+
+
+def test_transfer_ownership_success_with_event(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+
+    logs = [
+        event_json("ownership_transferred", {
+            "vault": "vault-0.factory.testnet",
+            "old_owner": "alice.testnet",
+            "new_owner": "bob.testnet"
+        })
+    ]
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="txown123"),
+        logs=logs,
+        status={"SuccessValue": ""},
+    ))
+
+    vault.transfer_ownership("vault-0.factory.testnet", "bob.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "Ownership Transferred" in msg
+    assert "vault-0.factory.testnet" in msg
+    assert "alice.testnet" in msg
+    assert "bob.testnet" in msg
+    assert "txown123" in msg
+
+
+def test_transfer_ownership_panic_owner_only(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="txnope1"),
+        logs=[],
+        status=_failure_exec_error("Only the vault owner can transfer ownership"),
+    ))
+
+    vault.transfer_ownership("vault-1.factory.testnet", "bob.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "Only the current vault owner" in msg
+
+
+def test_transfer_ownership_panic_same_owner(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="txnope2"),
+        logs=[],
+        status=_failure_exec_error("New owner must be different from the current owner"),
+    ))
+
+    vault.transfer_ownership("vault-2.factory.testnet", "alice.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "New owner must be different" in msg
+
+
+def test_transfer_ownership_panic_missing_yocto(monkeypatch, mock_setup):
+    env, mock_near = mock_setup
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="txnope3"),
+        logs=[],
+        status=_failure_exec_error("Requires attached deposit of exactly 1 yoctoNEAR"),
+    ))
+
+    vault.transfer_ownership("vault-3.factory.testnet", "bob.testnet")
+
+    env.add_reply.assert_called_once()
+    msg = env.add_reply.call_args[0][0]
+    assert "1 yoctoNEAR" in msg
+
+
 def test_vault_state_minimal(mock_setup, minimal_vault_state):
     """
     Should display basic vault state summary correctly when no liquidity request,

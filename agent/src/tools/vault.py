@@ -18,8 +18,19 @@ from helpers import (
     signing_mode,
     account_id,
     run_coroutine,
-    format_near_timestamp
+    format_near_timestamp,
+    get_failure_message_from_tx_status,
+    get_explorer_url,
+    log_contains_event,
+    find_event_data,
+    index_vault_to_firebase,
 )
+
+# -----------------------------------------------------------------------------
+# Module constants
+# -----------------------------------------------------------------------------
+
+GAS_300_TGAS: int = 300_000_000_000_000
 
 def format_duration(seconds: int) -> str:
     """Convert a duration in seconds to a human-readable string."""
@@ -63,6 +74,7 @@ def show_help_menu() -> None:
         • transfer <amount> to <vault>  
         • withdraw <amount> from <vault>  
         • withdraw <amount> from <vault> to <receiver>  
+        • transfer ownership of <vault> to <new_owner>  
         • show my vaults  
 
         __Staking__
@@ -248,3 +260,109 @@ def view_user_vaults() -> None:
     except Exception as e:
         log.error("view_user_vaults error for %s: %s", acct_id, e, exc_info=True)
         env.add_reply(f"❌ Failed to fetch vault list\n\n**Error:** {e}")
+
+
+def transfer_ownership(vault_id: str, new_owner: str) -> None:
+    """
+    Transfer ownership of `vault_id` to `new_owner`.
+
+    • Requires headless signing (NEAR_ACCOUNT_ID + NEAR_PRIVATE_KEY).
+    • Attaches exactly 1 yoctoNEAR per contract access control.
+    • Maps common panics to user-friendly messages.
+    • Surfaces EVENT_JSON ownership_transferred details when available.
+    """
+
+    env = get_env()
+    near = get_near()
+    logger: Logger = get_logger()
+
+    # Require headless signing for state changes
+    if signing_mode() != "headless":
+        env.add_reply(
+            "⚠️ I can't sign transactions in this session.\n"
+            "Add `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` to your run's "
+            "secrets, then try again."
+        )
+        return
+
+    # Basic input check
+    if not new_owner or not isinstance(new_owner, str):
+        env.add_reply("❌ Please provide a valid `new_owner` account ID.")
+        return
+
+    try:
+        tx = run_coroutine(
+            near.call(
+                contract_id=vault_id,
+                method_name="transfer_ownership",
+                args={"new_owner": new_owner},
+                gas=GAS_300_TGAS,
+                amount=1,                 # 1 yoctoNEAR
+            )
+        )
+
+        failure = get_failure_message_from_tx_status(tx.status)
+        if failure:
+            s = str(failure)
+            # Friendly mappings based on contract messages
+            if "Requires attached deposit of exactly 1 yoctoNEAR" in s:
+                env.add_reply(
+                    "❌ Requires exactly 1 yoctoNEAR attached deposit.\n"
+                    "This tool attaches it automatically; please retry."
+                )
+                return
+            if "Only the vault owner can transfer ownership" in s:
+                env.add_reply(
+                    "❌ Only the current vault owner may transfer ownership."
+                )
+                return
+            if "New owner must be different from the current owner" in s:
+                env.add_reply(
+                    "❌ New owner must be different from the current owner."
+                )
+                return
+
+            # Generic fallback
+            import json as _json
+            env.add_reply(
+                "❌ Ownership transfer failed due to contract panic:\n\n"
+                f"> {_json.dumps(failure, indent=2)}"
+            )
+            return
+
+        explorer = get_explorer_url()
+
+        # Extract details from logs if present
+        old_owner_str = None
+        new_owner_str = None
+        if log_contains_event(tx.logs, "ownership_transferred"):
+            data = find_event_data(tx.logs, "ownership_transferred") or {}
+            old_owner_str = data.get("old_owner")
+            new_owner_str = data.get("new_owner")
+
+        details = []
+        if old_owner_str or new_owner_str:
+            if old_owner_str:
+                details.append(f"Old owner: `{old_owner_str}`")
+            if new_owner_str:
+                details.append(f"New owner: `{new_owner_str}`")
+        detail_text = ("\n- " + "\n- ".join(details)) if details else ""
+
+        # Best-effort: index updated vault to backend
+        try:
+            index_vault_to_firebase(vault_id, tx.transaction.hash)
+        except Exception as e:
+            logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
+
+        env.add_reply(
+            f"✅ **Ownership Transferred**\n"
+            f"- Vault: [`{vault_id}`]({explorer}/accounts/{vault_id})\n"
+            f"- 🔗 Tx: [{tx.transaction.hash}]({explorer}/transactions/{tx.transaction.hash})"
+            f"{detail_text}"
+        )
+
+    except Exception as e:
+        logger.error("transfer_ownership error: %s", e, exc_info=True)
+        env.add_reply(
+            f"❌ Failed to transfer ownership of `{vault_id}` to `{new_owner}`\n\n**Error:** {e}"
+        )
