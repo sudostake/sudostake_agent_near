@@ -1,4 +1,5 @@
 import time as _time
+import json as _json
 from datetime import datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
@@ -76,7 +77,6 @@ def event_json(event, data=None):
     payload = {"event": event}
     if data is not None:
         payload["data"] = data
-    import json as _json
     return f"EVENT_JSON:{_json.dumps(payload)}"
 
 
