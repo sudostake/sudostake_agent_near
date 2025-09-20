@@ -2,6 +2,7 @@ import json
 import asyncio
 import requests
 import time
+import re
 
 from decimal import Decimal, InvalidOperation, DivisionByZero, Overflow
 from typing import List, TypedDict, cast, Any, Dict, Literal, Optional, Tuple
@@ -9,10 +10,10 @@ from logging import Logger
 from datetime import datetime, timezone
 from .context import get_env, get_near, get_logger
 from token_registry import get_token_metadata, get_token_metadata_by_contract, TokenMeta
+import helpers
 from helpers import (
     YOCTO_FACTOR,
     get_factory_contract,
-    index_vault_to_firebase,
     run_coroutine, 
     get_explorer_url, 
     log_contains_event,
@@ -23,7 +24,18 @@ from helpers import (
     format_firestore_timestamp,
 )
 
+# Re-export for tests that monkeypatch tools.liquidity_request.index_vault_to_firebase
+index_vault_to_firebase = helpers.index_vault_to_firebase  # type: ignore[assignment]
+
 from py_near.models import TransactionResult
+# Backward-compatible gas/yocto constants: fall back if missing in deployed constants
+try:  # pragma: no cover
+    from constants import GAS_300_TGAS as _GAS_300_TGAS, YOCTO_1 as _YOCTO_1
+except Exception:
+    _GAS_300_TGAS = 300_000_000_000_000
+    _YOCTO_1 = 1
+GAS_300_TGAS: int = _GAS_300_TGAS
+YOCTO_1: int = _YOCTO_1
 
 # Define the structure of the liquidity request
 class LiquidityRequest(TypedDict):
@@ -208,7 +220,7 @@ def _format_position_entry(explorer_url: str, entry: Dict[str, Any], preloaded_s
     # Liquidation status (best-effort) and quick action
     liquidation_block = ""
     if entry.get("expired"):
-        state: Optional[Dict[str, Any]] = preloaded_state
+        state = preloaded_state
         if isinstance(state, dict):
             liq = state.get("liquidation")
             chain_req = state.get("liquidity_request") or {}
@@ -230,6 +242,81 @@ def _format_position_entry(explorer_url: str, entry: Dict[str, Any], preloaded_s
     quick_action = (
         f"  • Quick action: `Process claims on {pos['id']}`\n" if entry.get("expired") else ""
     )
+
+    # Assemble and return the formatted block
+    return (
+        f"- Vault: [`{pos['id']}`]({explorer_url}/accounts/{pos['id']})\n"
+        f"  • Borrower: `{pos.get('owner', 'unknown')}`\n"
+        f"  • Token: {symbol} (`{req['token']}`)\n"
+        f"  • Principal: `{_format_number(principal)}` {symbol} • Interest: `{_format_number(interest)}` {symbol} • Total: `{_format_number(total_due)}` {symbol}\n"
+        f"  • Collateral: `{_format_number(collateral_near)}` NEAR\n"
+        f"  • APR: {apr_text}\n"
+        f"  • Duration: `{duration_days} days`\n"
+        f"  • Accepted: `{accepted_text}` • Expires: `{expires_text}` • Time left: `{time_left_text}`\n"
+        f"  • Claims eligible: `{claims_eligible_text}`\n"
+        f"  • Action: {action_hint}\n"
+        f"{liquidation_block}"
+        f"{quick_action}"
+        "\n"
+    )
+
+
+# -----------------------------------------------------------------------------
+# Internal helpers — request_liquidity panic mapping
+# -----------------------------------------------------------------------------
+
+_RE_VAULT_BUSY = re.compile(r"Vault\s+busy\s+with\s+\"?([A-Za-z]+)\"?")
+
+
+def _failure_text(failure: Dict[str, Any]) -> str:
+    """Extract the most relevant error string from a failure dict."""
+    try:
+        if isinstance(failure, dict):
+            fce = failure.get("FunctionCallError")
+            if isinstance(fce, dict):
+                exec_err = fce.get("ExecutionError")
+                if isinstance(exec_err, str):
+                    return exec_err
+    except Exception:
+        pass
+    return json.dumps(failure)
+
+
+def _map_request_liquidity_panic_message(failure: Dict[str, Any]) -> Optional[str]:
+    """Return a user-friendly mapping for common request_liquidity panics."""
+    s = _failure_text(failure)
+
+    # Access control
+    if "Requires attached deposit of exactly 1 yoctoNEAR" in s:
+        return (
+            "Reason: Requires exactly 1 yoctoNEAR attached deposit.\n"
+            "Tip: This tool attaches it automatically; please retry."
+        )
+
+    # Owner-only
+    if "Only the vault owner can request liquidity" in s:
+        return "Reason: Only the vault owner can request liquidity."
+
+    # State preconditions
+    known_reasons = (
+        "A liquidity request is already in progress",
+        "A request is already open",
+        "Vault is already matched with a lender",
+        "Counter-offers must be cleared",
+        "Collateral must be positive",
+        "Requested amount must be greater than zero",
+        "Duration must be non-zero",
+    )
+    for r in known_reasons:
+        if r in s:
+            return f"Reason: {r}."
+
+    # Processing lock
+    m = _RE_VAULT_BUSY.search(s)
+    if m:
+        return f"Reason: Vault busy with `{m.group(1)}`. Try again after callbacks finish."
+
+    return None
 
     return (
         f"- Vault: [`{pos['id']}`]({explorer_url}/accounts/{pos['id']})\n"
@@ -311,18 +398,24 @@ def request_liquidity(
                 contract_id=vault_id,
                 method_name="request_liquidity",
                 args=cast(Dict[str, Any], args),
-                gas=300_000_000_000_000,  # 300 TGas
-                amount=1,                 # 1 yoctoNEAR deposit
+                gas=GAS_300_TGAS,
+                amount=YOCTO_1,          # 1 yoctoNEAR deposit
             )
         )
         
         # Catch any panic errors
         failure = get_failure_message_from_tx_status(response.status)
         if failure:
-            env.add_reply(
-                "❌ Liquidity Request failed with **contract panic**:\n\n"
-                f"> {json.dumps(failure, indent=2)}"
-            )
+            mapped = _map_request_liquidity_panic_message(cast(Dict[str, Any], failure))
+            if mapped:
+                env.add_reply(
+                    "❌ Liquidity Request failed with **contract panic**:\n" + mapped
+                )
+            else:
+                env.add_reply(
+                    "❌ Liquidity Request failed with **contract panic**:\n\n"
+                    f"> {json.dumps(failure, indent=2)}"
+                )
             return
         
         # Inspect the logs for event : liquidity_request_failed_insufficient_stake
@@ -333,9 +426,9 @@ def request_liquidity(
             )
             return
         
-        # Index the vault via backend API
+        # Index the vault via backend API (best‑effort)
         try:
-            index_vault_to_firebase(vault_id, response.transaction.hash)
+            helpers.index_vault_to_firebase(vault_id, response.transaction.hash)
         except Exception as e:
             logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
         
@@ -467,8 +560,8 @@ def accept_liquidity_request(vault_id: str) -> None:
                     "amount": token_amount,
                     "msg": json.dumps(msg_payload),
                 },
-                gas=300_000_000_000_000,  # 300 TGas
-                amount=1,                 # 1 yoctoNEAR deposit
+                gas=GAS_300_TGAS,
+                amount=YOCTO_1,          # 1 yoctoNEAR deposit
             )
         )
         
@@ -481,7 +574,7 @@ def accept_liquidity_request(vault_id: str) -> None:
         
         # Index the vault via backend API
         try:
-            index_vault_to_firebase(vault_id, tx.transaction.hash)
+            helpers.index_vault_to_firebase(vault_id, tx.transaction.hash)
         except Exception as e:
             logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
         
