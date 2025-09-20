@@ -428,7 +428,7 @@ def request_liquidity(
         
         # Index the vault via backend API (best‑effort)
         try:
-            index_vault_to_firebase(vault_id, response.transaction.hash)
+            helpers.index_vault_to_firebase(vault_id, response.transaction.hash)
         except Exception as e:
             logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
         
