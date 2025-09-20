@@ -35,12 +35,11 @@ from helpers import (
 from . import active_loan as active_loan_mod
 
 
-# -----------------------------------------------------------------------------
-# Constants & Types
-# -----------------------------------------------------------------------------
+from constants import GAS_300_TGAS, YOCTO_1
 
-GAS_300_TGAS: int = 300_000_000_000_000
-YOCTO_1: int = 1
+# -----------------------------------------------------------------------------
+# Types
+# -----------------------------------------------------------------------------
 
 # Precompiled patterns for panic mapping
 _RE_LIQ_NOT_ALLOWED = re.compile(r"Liquidation not allowed until (\d+)")

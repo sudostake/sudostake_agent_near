@@ -10,7 +10,7 @@ from typing import List, cast
 from datetime import timedelta
 from logging import Logger
 from .context import get_env, get_near, get_logger
-from constants import NANOSECONDS_PER_SECOND
+from constants import NANOSECONDS_PER_SECOND, GAS_300_TGAS, YOCTO_1
 from helpers import (
     get_factory_contract,
     USDC_FACTOR,
@@ -27,11 +27,6 @@ from helpers import (
     index_vault_to_firebase,
 )
 
-# -----------------------------------------------------------------------------
-# Module constants
-# -----------------------------------------------------------------------------
-
-GAS_300_TGAS: int = 300_000_000_000_000
 
 # Friendly panic → reply mappings for ownership transfer
 OWNERSHIP_TRANSFER_PANIC_MAP: dict[str, str] = {
@@ -312,7 +307,7 @@ def transfer_ownership(vault_id: str, new_owner: str) -> None:
                 method_name="transfer_ownership",
                 args={"new_owner": new_owner},
                 gas=GAS_300_TGAS,
-                amount=1,                 # 1 yoctoNEAR
+                amount=YOCTO_1,          # 1 yoctoNEAR
             )
         )
 

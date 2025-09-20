@@ -4,6 +4,7 @@ from decimal import Decimal
 from logging import Logger
 from .context import get_env, get_near, get_logger
 from helpers import YOCTO_FACTOR, signing_mode, run_coroutine, get_failure_message_from_tx_status, get_explorer_url
+from constants import GAS_300_TGAS, YOCTO_1
 from py_near.models import TransactionResult
 
 def withdraw_balance(vault_id: str, amount: str, to_address: str) -> None:
@@ -49,8 +50,8 @@ def withdraw_balance(vault_id: str, amount: str, to_address: str) -> None:
                 contract_id=vault_id,
                 method_name="withdraw_balance",
                 args=args,
-                gas=300_000_000_000_000,  # 300 TGas
-                amount=1,                 # 1 yoctoNEAR
+                gas=GAS_300_TGAS,
+                amount=YOCTO_1,
             )
         )
         
@@ -111,8 +112,8 @@ def claim_unstaked_balance(vault_id: str, validator: str) -> None:
                 contract_id=vault_id,
                 method_name="claim_unstaked",
                 args={"validator": validator},
-                gas=300_000_000_000_000,
-                amount=1  # 1 yoctoNEAR
+                gas=GAS_300_TGAS,
+                amount=YOCTO_1  # 1 yoctoNEAR
             )
         )
         

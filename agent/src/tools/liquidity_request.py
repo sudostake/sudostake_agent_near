@@ -24,6 +24,7 @@ from helpers import (
 )
 
 from py_near.models import TransactionResult
+from constants import GAS_300_TGAS, YOCTO_1
 
 # Define the structure of the liquidity request
 class LiquidityRequest(TypedDict):
@@ -311,8 +312,8 @@ def request_liquidity(
                 contract_id=vault_id,
                 method_name="request_liquidity",
                 args=cast(Dict[str, Any], args),
-                gas=300_000_000_000_000,  # 300 TGas
-                amount=1,                 # 1 yoctoNEAR deposit
+                gas=GAS_300_TGAS,
+                amount=YOCTO_1,          # 1 yoctoNEAR deposit
             )
         )
         
@@ -333,7 +334,7 @@ def request_liquidity(
             )
             return
         
-        # Index the vault via backend API
+        # Index the vault via backend API (best‑effort)
         try:
             index_vault_to_firebase(vault_id, response.transaction.hash)
         except Exception as e:
@@ -467,8 +468,8 @@ def accept_liquidity_request(vault_id: str) -> None:
                     "amount": token_amount,
                     "msg": json.dumps(msg_payload),
                 },
-                gas=300_000_000_000_000,  # 300 TGas
-                amount=1,                 # 1 yoctoNEAR deposit
+                gas=GAS_300_TGAS,
+                amount=YOCTO_1,          # 1 yoctoNEAR deposit
             )
         )
         

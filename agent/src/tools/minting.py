@@ -13,6 +13,7 @@ from helpers import (
     get_explorer_url,
 )
 from py_near.models import TransactionResult
+from constants import GAS_300_TGAS
 
 
 def mint_vault() -> None:
@@ -48,7 +49,7 @@ def mint_vault() -> None:
                 contract_id=factory_id,
                 method_name="mint_vault",
                 args={},
-                gas=300_000_000_000_000,        # 300 Tgas
+                gas=GAS_300_TGAS,
                 amount=yocto_fee,               # 10 NEAR in yocto
             )
         )

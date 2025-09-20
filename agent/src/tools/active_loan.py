@@ -18,6 +18,7 @@ import json
 from logging import Logger
 from .context import get_env, get_near, get_logger
 from py_near.models import TransactionResult
+from constants import GAS_300_TGAS, YOCTO_1
 from helpers import (
     run_coroutine,
     get_explorer_url,
@@ -30,11 +31,8 @@ from helpers import (
 )
 
 # -----------------------------------------------------------------------------
-# Constants
+# Constants are imported from constants.py
 # -----------------------------------------------------------------------------
-
-GAS_300_TGAS: int = 300_000_000_000_000
-YOCTO_1: int = 1
 
 
 # -----------------------------------------------------------------------------
