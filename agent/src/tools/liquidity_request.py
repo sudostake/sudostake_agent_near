@@ -24,6 +24,9 @@ from helpers import (
     format_firestore_timestamp,
 )
 
+# Re-export for tests that monkeypatch tools.liquidity_request.index_vault_to_firebase
+index_vault_to_firebase = helpers.index_vault_to_firebase  # type: ignore[assignment]
+
 from py_near.models import TransactionResult
 from constants import GAS_300_TGAS, YOCTO_1
 
