@@ -18,7 +18,14 @@ import json
 from logging import Logger
 from .context import get_env, get_near, get_logger
 from py_near.models import TransactionResult
-from constants import GAS_300_TGAS, YOCTO_1
+# Backward-compatible gas/yocto constants: fall back if missing in deployed constants
+try:  # pragma: no cover
+    from constants import GAS_300_TGAS as _GAS_300_TGAS, YOCTO_1 as _YOCTO_1
+except Exception:
+    _GAS_300_TGAS = 300_000_000_000_000
+    _YOCTO_1 = 1
+GAS_300_TGAS: int = _GAS_300_TGAS
+YOCTO_1: int = _YOCTO_1
 from helpers import (
     run_coroutine,
     get_explorer_url,

@@ -4,7 +4,13 @@ from decimal import Decimal
 from logging import Logger
 from .context import get_env, get_near, get_logger
 from helpers import YOCTO_FACTOR, signing_mode, run_coroutine, get_failure_message_from_tx_status, get_explorer_url
-from constants import GAS_300_TGAS, YOCTO_1
+try:  # pragma: no cover
+    from constants import GAS_300_TGAS as _GAS_300_TGAS, YOCTO_1 as _YOCTO_1
+except Exception:
+    _GAS_300_TGAS = 300_000_000_000_000
+    _YOCTO_1 = 1
+GAS_300_TGAS: int = _GAS_300_TGAS
+YOCTO_1: int = _YOCTO_1
 from py_near.models import TransactionResult
 
 def delegate(vault_id: str, validator: str, amount: str) -> None:
