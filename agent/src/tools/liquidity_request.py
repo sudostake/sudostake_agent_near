@@ -227,7 +227,11 @@ def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any]) -> st
                     liquidation_block = "  • Liquidation: Not started\n"
             else:
                 liquidation_block = "  • Liquidation: Unknown\n"
-        except Exception:
+        except Exception as e:
+            # Log the underlying error for diagnostics; present a neutral message to users.
+            get_logger().warning(
+                "Failed to retrieve liquidation status for %s: %s", pos.get('id'), e, exc_info=True
+            )
             liquidation_block = "  • Liquidation: Unknown\n"
 
     quick_action = (
