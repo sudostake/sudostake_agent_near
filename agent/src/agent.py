@@ -1,6 +1,7 @@
 import json
 from nearai.agents.environment import Environment
 from helpers import ensure_loop, init_near, vector_store_id, top_doc_chunks
+from tools import register_tools
 
 
 def run(env: Environment) -> None:
@@ -23,16 +24,8 @@ def run(env: Environment) -> None:
         )
         return
 
-    # Register tools (import lazily and guard errors so we always reply)
-    try:
-        from tools import register_tools  # import-inside to avoid import-time failures breaking agent
-        tool_defs = register_tools(env, near)
-    except Exception as e:
-        env.add_reply(
-            "Failed to register tools. This can happen if there is a bad import or a circular dependency.\n"
-            f"Error: {e}"
-        )
-        return
+    # Register tools
+    tool_defs = register_tools(env, near)
 
     # Build prompt (system → history → docs → latest user)
     messages = env.list_messages()
