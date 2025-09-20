@@ -305,22 +305,22 @@ def transfer_ownership(vault_id: str, new_owner: str) -> None:
         if failure:
             s = str(failure)
             # Friendly mappings based on contract messages
-            if "Requires attached deposit of exactly 1 yoctoNEAR" in s:
-                env.add_reply(
+            error_reply_map = {
+                "Requires attached deposit of exactly 1 yoctoNEAR": (
                     "❌ Requires exactly 1 yoctoNEAR attached deposit.\n"
                     "This tool attaches it automatically; please retry."
-                )
-                return
-            if "Only the vault owner can transfer ownership" in s:
-                env.add_reply(
+                ),
+                "Only the vault owner can transfer ownership": (
                     "❌ Only the current vault owner may transfer ownership."
-                )
-                return
-            if "New owner must be different from the current owner" in s:
-                env.add_reply(
+                ),
+                "New owner must be different from the current owner": (
                     "❌ New owner must be different from the current owner."
-                )
-                return
+                ),
+            }
+            for pattern, reply in error_reply_map.items():
+                if pattern in s:
+                    env.add_reply(reply)
+                    return
 
             # Generic fallback
             import json as _json
