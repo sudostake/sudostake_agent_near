@@ -31,6 +31,7 @@ def register_tools(env: Environment, near: NearClient) -> list[MCPTool]:
         vault.show_help_menu,
         vault.vault_state,
         vault.view_user_vaults,
+        vault.transfer_ownership,
         balance.view_main_balance,
         balance.view_available_balance,
         minting.mint_vault,
