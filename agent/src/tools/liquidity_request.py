@@ -428,7 +428,7 @@ def request_liquidity(
         
         # Index the vault via backend API (best‑effort)
         try:
-            helpers.index_vault_to_firebase(vault_id, response.transaction.hash)
+            index_vault_to_firebase(vault_id, response.transaction.hash)
         except Exception as e:
             logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
         
@@ -487,7 +487,14 @@ def view_pending_liquidity_requests() -> None:
             lr = item.get("liquidity_request", {})
 
             # Resolve token metadata for human formatting
-            token_meta = get_token_metadata_by_contract(str(lr.get("token")))
+            token_contract = lr.get("token")
+            if not isinstance(token_contract, str) or not token_contract:
+                logger.warning(
+                    "Pending liquidity request for %s is missing token contract; skipping entry",
+                    vault_id,
+                )
+                continue
+            token_meta = get_token_metadata_by_contract(token_contract)
             decimals = int(token_meta["decimals"])
             symbol = token_meta["symbol"]
 
