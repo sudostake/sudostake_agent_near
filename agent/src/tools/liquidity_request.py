@@ -165,7 +165,7 @@ def _sort_enriched(enriched: List[Dict[str, Any]]) -> None:
     enriched.sort(key=sort_key)
 
 
-def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any], preloaded_state: Optional[Dict[str, Any]] = None) -> str:
+def _format_position_entry(explorer_url: str, entry: Dict[str, Any], preloaded_state: Optional[Dict[str, Any]] = None) -> str:
     """Return a formatted block for one position entry, including quick action and liquidation info when eligible."""
     pos = cast(Dict[str, Any], entry["raw"])  # guaranteed present
     req = cast(Dict[str, Any], pos["liquidity_request"])  # guaranteed present
@@ -208,33 +208,23 @@ def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any], prelo
     # Liquidation status (best-effort) and quick action
     liquidation_block = ""
     if entry.get("expired"):
-        try:
-            state: Optional[Dict[str, Any]] = preloaded_state
-            if state is None:
-                state_resp = run_coroutine(near.view(pos['id'], "get_vault_state", {}))
-                state = getattr(state_resp, "result", None)
-            if isinstance(state, dict):
-                liq = state.get("liquidation")
-                chain_req = state.get("liquidity_request") or {}
-                try:
-                    total_collateral_near = Decimal(str(chain_req.get("collateral"))) / YOCTO_FACTOR
-                except (InvalidOperation, Overflow, TypeError, ValueError):
-                    total_collateral_near = collateral_near
-                if liq:
-                    liquidated_near = Decimal(str(liq.get("liquidated", "0"))) / YOCTO_FACTOR
-                    liquidation_block = (
-                        "  • Liquidation: In progress\n"
-                        + f"  • Liquidated so far: `{_format_number(liquidated_near, 5)}` NEAR of `{_format_number(total_collateral_near, 5)}` NEAR\n"
-                    )
-                else:
-                    liquidation_block = "  • Liquidation: Not started\n"
+        state: Optional[Dict[str, Any]] = preloaded_state
+        if isinstance(state, dict):
+            liq = state.get("liquidation")
+            chain_req = state.get("liquidity_request") or {}
+            try:
+                total_collateral_near = Decimal(str(chain_req.get("collateral"))) / YOCTO_FACTOR
+            except (InvalidOperation, Overflow, TypeError, ValueError):
+                total_collateral_near = collateral_near
+            if liq:
+                liquidated_near = Decimal(str(liq.get("liquidated", "0"))) / YOCTO_FACTOR
+                liquidation_block = (
+                    "  • Liquidation: In progress\n"
+                    + f"  • Liquidated so far: `{_format_number(liquidated_near, 5)}` NEAR of `{_format_number(total_collateral_near, 5)}` NEAR\n"
+                )
             else:
-                liquidation_block = "  • Liquidation: Unknown\n"
-        except Exception as e:
-            # Log the underlying error for diagnostics; present a neutral message to users.
-            get_logger().warning(
-                "Failed to retrieve liquidation status for %s: %s", pos.get('id'), e, exc_info=True
-            )
+                liquidation_block = "  • Liquidation: Not started\n"
+        else:
             liquidation_block = "  • Liquidation: Unknown\n"
 
     quick_action = (
@@ -585,7 +575,7 @@ def view_lender_positions() -> None:
         for entry in enriched:
             v_id = cast(Dict[str, Any], entry["raw"]).get("id")
             pre_state = state_by_vault.get(v_id) if isinstance(v_id, str) else None
-            blocks.append(_format_position_entry(near, explorer, entry, preloaded_state=pre_state))
+            blocks.append(_format_position_entry(explorer, entry, preloaded_state=pre_state))
 
         env.add_reply("".join(blocks))
 
