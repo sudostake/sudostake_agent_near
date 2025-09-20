@@ -3,7 +3,7 @@ import requests
 import time
 
 from decimal import Decimal
-from typing import List, TypedDict, cast, Any, Dict, Literal, Optional
+from typing import List, TypedDict, cast, Any, Dict, Literal, Optional, Tuple
 from logging import Logger
 from datetime import datetime, timezone
 from .context import get_env, get_near, get_logger
@@ -156,7 +156,7 @@ def _enrich_positions(positions: List[ActiveRequest]) -> List[Dict[str, Any]]:
 
 def _sort_enriched(enriched: List[Dict[str, Any]]) -> None:
     """Sort in-place: expired first, then soonest to expire."""
-    def sort_key(e: Dict[str, Any]) -> tuple[int, int]:
+    def sort_key(e: Dict[str, Any]) -> Tuple[int, int]:
         expired_rank = 0 if e.get("expired") else 1
         expiry_val = e.get("expiry_secs") or 0
         return (expired_rank, int(expiry_val))
