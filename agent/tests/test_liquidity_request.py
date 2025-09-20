@@ -257,7 +257,7 @@ def test_view_pending_requests_success(monkeypatch, mock_setup):
     assert "📋 Pending Liquidity Requests" in msg
     assert "vault-0.factory.testnet" in msg
     assert "300" in msg
-    assert "30 days" in msg
+    assert "30d" in msg
 
 
 def test_view_pending_requests_empty(monkeypatch, mock_setup):
