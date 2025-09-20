@@ -182,6 +182,39 @@ def test_request_liquidity_indexing_failure(monkeypatch, mock_setup):
     assert "tx999" in msg
 
 
+def test_request_liquidity_indexes_on_success(monkeypatch, mock_setup):
+    """Should call index_vault_to_firebase once after a successful request."""
+
+    env, mock_near = mock_setup
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="txidx"),
+        logs=[],
+        status={"SuccessValue": ""},
+    ))
+
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+
+    recorded: list[tuple[str, str]] = []
+
+    def record_index(vault_id: str, tx_hash: str, factory_id=None):
+        recorded.append((vault_id, tx_hash))
+
+    monkeypatch.setattr(helpers, "index_vault_to_firebase", record_index)
+
+    liquidity_request.request_liquidity(
+        vault_id="vault-idx.factory.testnet",
+        amount=123,
+        denom="usdc",
+        interest=4,
+        duration=7,
+        collateral=10,
+    )
+
+    assert recorded == [("vault-idx.factory.testnet", "txidx")]
+
+
 # ───────────────── view_pending_liquidity_requests tests ─────────────────
 
 def test_view_pending_requests_success(monkeypatch, mock_setup):
