@@ -1,4 +1,5 @@
 import json
+import asyncio
 import requests
 import time
 
@@ -164,7 +165,7 @@ def _sort_enriched(enriched: List[Dict[str, Any]]) -> None:
     enriched.sort(key=sort_key)
 
 
-def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any]) -> str:
+def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any], preloaded_state: Optional[Dict[str, Any]] = None) -> str:
     """Return a formatted block for one position entry, including quick action and liquidation info when eligible."""
     pos = cast(Dict[str, Any], entry["raw"])  # guaranteed present
     req = cast(Dict[str, Any], pos["liquidity_request"])  # guaranteed present
@@ -208,8 +209,10 @@ def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any]) -> st
     liquidation_block = ""
     if entry.get("expired"):
         try:
-            state_resp = run_coroutine(near.view(pos['id'], "get_vault_state", {}))
-            state = getattr(state_resp, "result", None)
+            state: Optional[Dict[str, Any]] = preloaded_state
+            if state is None:
+                state_resp = run_coroutine(near.view(pos['id'], "get_vault_state", {}))
+                state = getattr(state_resp, "result", None)
             if isinstance(state, dict):
                 liq = state.get("liquidation")
                 chain_req = state.get("liquidity_request") or {}
@@ -558,10 +561,31 @@ def view_lender_positions() -> None:
         enriched = _enrich_positions(positions)
         _sort_enriched(enriched)
 
+        # Prefetch on-chain vault states for expired positions concurrently to avoid N sequential RPCs.
+        expired_ids = [cast(Dict[str, Any], e["raw"]).get("id") for e in enriched if e.get("expired")]
+        state_by_vault: Dict[str, Optional[Dict[str, Any]]] = {}
+        if expired_ids:
+            try:
+                coros = [near.view(v_id, "get_vault_state", {}) for v_id in expired_ids if isinstance(v_id, str)]
+                results = run_coroutine(asyncio.gather(*coros, return_exceptions=True))
+                for v_id, res in zip(expired_ids, results):
+                    if not isinstance(v_id, str):
+                        continue
+                    if isinstance(res, Exception):
+                        logger.warning("prefetch get_vault_state failed for %s: %s", v_id, res, exc_info=True)
+                        state_by_vault[v_id] = None
+                        continue
+                    st = getattr(res, "result", None)
+                    state_by_vault[v_id] = st if isinstance(st, dict) else None
+            except Exception as e:
+                logger.warning("prefetch gather failed: %s", e, exc_info=True)
+
         explorer = get_explorer_url()
         blocks: List[str] = [f"**📄 Active Lending Positions for `{lender_id}`**\n"]
         for entry in enriched:
-            blocks.append(_format_position_entry(near, explorer, entry))
+            v_id = cast(Dict[str, Any], entry["raw"]).get("id")
+            pre_state = state_by_vault.get(v_id) if isinstance(v_id, str) else None
+            blocks.append(_format_position_entry(near, explorer, entry, preloaded_state=pre_state))
 
         env.add_reply("".join(blocks))
 
