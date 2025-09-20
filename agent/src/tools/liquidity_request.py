@@ -535,7 +535,22 @@ def view_lender_positions() -> None:
             return
 
         factory_id = get_factory_contract()
-        positions = _fetch_lender_positions(factory_id, lender_id)
+        try:
+            positions = _fetch_lender_positions(factory_id, lender_id)
+        except (ValueError, json.JSONDecodeError) as e:
+            logger.warning("view_lender_positions JSON parse failed: %s", e, exc_info=True)
+            env.add_reply(
+                "❌ Failed to fetch lending positions\n\n"
+                f"**Error:** not a JSON response: {e}"
+            )
+            return
+        except Exception as e:
+            logger.warning("view_lender_positions API error: %s", e, exc_info=True)
+            env.add_reply(
+                "❌ Failed to fetch lending positions\n\n"
+                f"**Error:** {e}"
+            )
+            return
         if not positions:
             env.add_reply("✅ You have no active lending positions.")
             return
