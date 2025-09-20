@@ -215,7 +215,7 @@ def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any]) -> st
                 chain_req = state.get("liquidity_request") or {}
                 try:
                     total_collateral_near = Decimal(str(chain_req.get("collateral"))) / YOCTO_FACTOR
-                except Exception:
+                except (DecimalException, InvalidOperation, TypeError, ValueError):
                     total_collateral_near = collateral_near
                 if liq:
                     liquidated_near = Decimal(str(liq.get("liquidated", "0"))) / YOCTO_FACTOR
