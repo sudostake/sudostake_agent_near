@@ -10,7 +10,7 @@ import requests
 from constants import NANOSECONDS_PER_SECOND
 import helpers
 from helpers import USDC_FACTOR, YOCTO_FACTOR
-from test_utils import make_dummy_resp
+from test_utils import make_dummy_resp, failure_exec_error
 from tools import vault
 
 
@@ -80,16 +80,6 @@ def event_json(event, data=None):
     return f"EVENT_JSON:{_json.dumps(payload)}"
 
 
-def _failure_exec_error(msg: str) -> dict:
-    return {
-        "Failure": {
-            "ActionError": {
-                "kind": {
-                    "FunctionCallError": {"ExecutionError": msg}
-                }
-            }
-        }
-    }
 
 
 def test_transfer_ownership_not_headless(monkeypatch, mock_setup):
@@ -140,7 +130,7 @@ def test_transfer_ownership_panic_owner_only(monkeypatch, mock_setup):
     mock_near.call = AsyncMock(return_value=MagicMock(
         transaction=MagicMock(hash="txnope1"),
         logs=[],
-        status=_failure_exec_error("Only the vault owner can transfer ownership"),
+        status=failure_exec_error("Only the vault owner can transfer ownership"),
     ))
 
     vault.transfer_ownership("vault-1.factory.testnet", "bob.testnet")
@@ -157,7 +147,7 @@ def test_transfer_ownership_panic_same_owner(monkeypatch, mock_setup):
     mock_near.call = AsyncMock(return_value=MagicMock(
         transaction=MagicMock(hash="txnope2"),
         logs=[],
-        status=_failure_exec_error("New owner must be different from the current owner"),
+        status=failure_exec_error("New owner must be different from the current owner"),
     ))
 
     vault.transfer_ownership("vault-2.factory.testnet", "alice.testnet")
@@ -174,7 +164,7 @@ def test_transfer_ownership_panic_missing_yocto(monkeypatch, mock_setup):
     mock_near.call = AsyncMock(return_value=MagicMock(
         transaction=MagicMock(hash="txnope3"),
         logs=[],
-        status=_failure_exec_error("Requires attached deposit of exactly 1 yoctoNEAR"),
+        status=failure_exec_error("Requires attached deposit of exactly 1 yoctoNEAR"),
     ))
 
     vault.transfer_ownership("vault-3.factory.testnet", "bob.testnet")
