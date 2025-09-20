@@ -1,6 +1,7 @@
 """Vault-related helpers: formatting, state views, and user vaults."""
 
 import requests
+import json as _json
 import textwrap
 import time
 
@@ -323,7 +324,6 @@ def transfer_ownership(vault_id: str, new_owner: str) -> None:
                     return
 
             # Generic fallback
-            import json as _json
             env.add_reply(
                 "❌ Ownership transfer failed due to contract panic:\n\n"
                 f"> {_json.dumps(failure, indent=2)}"
