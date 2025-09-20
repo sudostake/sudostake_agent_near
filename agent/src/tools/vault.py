@@ -33,6 +33,20 @@ from helpers import (
 
 GAS_300_TGAS: int = 300_000_000_000_000
 
+# Friendly panic → reply mappings for ownership transfer
+OWNERSHIP_TRANSFER_PANIC_MAP: dict[str, str] = {
+    "Requires attached deposit of exactly 1 yoctoNEAR": (
+        "❌ Requires exactly 1 yoctoNEAR attached deposit.\n"
+        "This tool attaches it automatically; please retry."
+    ),
+    "Only the vault owner can transfer ownership": (
+        "❌ Only the current vault owner may transfer ownership."
+    ),
+    "New owner must be different from the current owner": (
+        "❌ New owner must be different from the current owner."
+    ),
+}
+
 def format_duration(seconds: int) -> str:
     """Convert a duration in seconds to a human-readable string."""
     delta = timedelta(seconds=seconds)
@@ -306,19 +320,7 @@ def transfer_ownership(vault_id: str, new_owner: str) -> None:
         if failure:
             s = str(failure)
             # Friendly mappings based on contract messages
-            error_reply_map = {
-                "Requires attached deposit of exactly 1 yoctoNEAR": (
-                    "❌ Requires exactly 1 yoctoNEAR attached deposit.\n"
-                    "This tool attaches it automatically; please retry."
-                ),
-                "Only the vault owner can transfer ownership": (
-                    "❌ Only the current vault owner may transfer ownership."
-                ),
-                "New owner must be different from the current owner": (
-                    "❌ New owner must be different from the current owner."
-                ),
-            }
-            for pattern, reply in error_reply_map.items():
+            for pattern, reply in OWNERSHIP_TRANSFER_PANIC_MAP.items():
                 if pattern in s:
                     env.add_reply(reply)
                     return
