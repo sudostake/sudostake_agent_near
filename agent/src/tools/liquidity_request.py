@@ -449,17 +449,21 @@ def request_liquidity(
 
 def view_pending_liquidity_requests() -> None:
     """
-    Display all pending liquidity requests from the Firebase index
-    for vaults minted under the current network's factory contract.
+    Display all pending liquidity requests in a concise, actionable format.
+
+    • Lists vault, borrower, token (symbol + contract), amounts, duration, collateral.  
+    • Adds Explorer links and a quick action to accept the request.  
+    • Falls back gracefully when the API errors or returns no data.  
     """
-    
+
     env = get_env()
     logger = get_logger()
-    
+
     try:
         # Resolve factory for the active network
         factory_id = get_factory_contract()
-        
+
+        # Fetch pending requests from the web API
         url = f"{firebase_vaults_api()}/view_pending_liquidity_requests"
         response = requests.get(
             url,
@@ -468,37 +472,58 @@ def view_pending_liquidity_requests() -> None:
             headers={"Content-Type": "application/json"},
         )
         response.raise_for_status()
-        
+
         pending: List[PendingRequest] = response.json()
-        
         if not pending:
             env.add_reply("✅ No pending liquidity requests found.")
             return
 
-        message = "**📋 Pending Liquidity Requests**\n\n"
+        explorer = get_explorer_url()
+        output_lines: List[str] = ["**📋 Pending Liquidity Requests**\n"]
+
         for item in pending:
-            lr = item["liquidity_request"]
-            token_meta = get_token_metadata_by_contract(lr["token"])
-            decimals = token_meta["decimals"]
+            vault_id = item.get("id", "<unknown>")
+            owner = item.get("owner", "unknown")
+            lr = item.get("liquidity_request", {})
+
+            # Resolve token metadata for human formatting
+            token_meta = get_token_metadata_by_contract(str(lr.get("token")))
+            decimals = int(token_meta["decimals"])
             symbol = token_meta["symbol"]
-            
-            amount = (Decimal(lr["amount"]) / Decimal(10 ** decimals)).quantize(Decimal(1))
-            interest = (Decimal(lr["interest"]) / Decimal(10 ** decimals)).quantize(Decimal(1))
-            collateral = (Decimal(lr["collateral"]) / YOCTO_FACTOR).quantize(Decimal(1))
-            duration_days = lr["duration"] // 86400
-            
-            message += (
-                f"- 🏦 `{item['id']}`\n"
-                f"  • Token: `{lr['token']}`\n"
-                f"  • Amount: `{amount}` {symbol}\n"
-                f"  • Interest: `{interest}` {symbol}\n"
-                f"  • Duration: `{duration_days} days`\n"
-                f"  • Collateral: `{collateral}` NEAR\n\n"
+
+            # Format values (no decimals for token/NEAR amounts in list view)
+            amount = Decimal(str(lr.get("amount", "0"))) / Decimal(10 ** decimals)
+            interest = Decimal(str(lr.get("interest", "0"))) / Decimal(10 ** decimals)
+            collateral = Decimal(str(lr.get("collateral", "0"))) / YOCTO_FACTOR
+            duration_days = int(lr.get("duration", 0)) // 86400
+            term_text = f"{duration_days}d"
+
+            # Estimate APR (simple) like the web view
+            apr_text = "N/A"
+            try:
+                if amount > 0 and duration_days > 0:
+                    apr_val = (interest / amount) * Decimal(365) / Decimal(duration_days) * 100
+                    apr_text = f"{_format_number(apr_val, 0)}%"
+            except (InvalidOperation, DivisionByZero, Overflow, ZeroDivisionError):
+                apr_text = "N/A"
+
+            quick_action = f"  • Quick action: `Accept liquidity request opened by {vault_id}`\n"
+
+            output_lines.append(
+                (
+                    f"- 🏦 [`{vault_id}`]({explorer}/accounts/{vault_id})\n"
+                    f"  • Borrower: `{owner}`\n"
+                    f"  • Token: {symbol} (`{lr.get('token')}`)\n"
+                    f"  • Amount: `{_format_number(amount, 0)}` {symbol} • Interest: `{_format_number(interest, 0)}` {symbol}\n"
+                    f"  • Term: `{term_text}`\n"
+                    f"  • Collateral: `{_format_number(collateral, 0)}` NEAR\n"
+                    f"  • Est. APR: `{apr_text}`\n"
+                    f"{quick_action}"
+                )
             )
-        
-        env.add_reply(message)
-            
-        
+
+        env.add_reply("\n".join(output_lines))
+
     except Exception as e:
         logger.warning("view_pending_liquidity_requests failed: %s", e, exc_info=True)
         env.add_reply(f"❌ Failed to fetch pending liquidity requests\n\n**Error:** {e}")
