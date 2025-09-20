@@ -2,7 +2,7 @@ import json
 import requests
 import time
 
-from decimal import Decimal, DecimalException, InvalidOperation
+from decimal import Decimal, InvalidOperation, DivisionByZero, Overflow
 from typing import List, TypedDict, cast, Any, Dict, Literal, Optional, Tuple
 from logging import Logger
 from datetime import datetime, timezone
@@ -185,7 +185,7 @@ def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any]) -> st
         if principal > 0 and duration_days > 0:
             apr_val = (interest / principal) * Decimal(365) / Decimal(duration_days) * 100
             apr_text = f"{_format_number(apr_val, 2)}%"
-    except (DecimalException, InvalidOperation, ZeroDivisionError):
+    except (InvalidOperation, DivisionByZero, Overflow, ZeroDivisionError):
         apr_text = "N/A"
 
     acc_ts = acc.get("accepted_at")
@@ -215,7 +215,7 @@ def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any]) -> st
                 chain_req = state.get("liquidity_request") or {}
                 try:
                     total_collateral_near = Decimal(str(chain_req.get("collateral"))) / YOCTO_FACTOR
-                except (DecimalException, InvalidOperation, TypeError, ValueError):
+                except (InvalidOperation, Overflow, TypeError, ValueError):
                     total_collateral_near = collateral_near
                 if liq:
                     liquidated_near = Decimal(str(liq.get("liquidated", "0"))) / YOCTO_FACTOR
