@@ -1,9 +1,11 @@
 import json
 import requests
+import time
 
 from decimal import Decimal
-from typing import List, TypedDict, cast, Any, Dict, Literal
+from typing import List, TypedDict, cast, Any, Dict, Literal, Optional
 from logging import Logger
+from datetime import datetime, timezone
 from .context import get_env, get_near, get_logger
 from token_registry import get_token_metadata, get_token_metadata_by_contract, TokenMeta
 from helpers import (
@@ -17,7 +19,7 @@ from helpers import (
     firebase_vaults_api,
     account_id,
     signing_mode,
-    format_firestore_timestamp
+    format_firestore_timestamp,
 )
 
 from py_near.models import TransactionResult
@@ -58,6 +60,195 @@ class AcceptLiquidityMsg(TypedDict):
     interest: str
     collateral: str
     duration: int
+
+# -----------------------------------------------------------------------------
+# Internal helpers — formatting and time
+# -----------------------------------------------------------------------------
+
+def _format_number(value: Decimal, digits: int = 2) -> str:
+    """Return a human-friendly number with separators and trimmed decimals."""
+    quantum = Decimal(10) ** -digits
+    text = f"{value.quantize(quantum):,}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def _epoch_seconds_to_utc(secs: int) -> str:
+    """Format epoch seconds as 'YYYY-MM-DD HH:MM UTC'."""
+    return datetime.fromtimestamp(secs, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _firestore_ts_to_seconds(ts: object) -> Optional[int]:
+    """Extract seconds from a Firestore-style timestamp or primitive value."""
+    if isinstance(ts, dict) and "_seconds" in ts:
+        try:
+            return int(ts["_seconds"])  # type: ignore[index]
+        except Exception:
+            return None
+    if isinstance(ts, (int, str)):
+        try:
+            return int(ts)
+        except Exception:
+            return None
+    return None
+
+
+def _format_time_left(seconds_left: int) -> str:
+    """Format seconds as 'Xd Yh Zm'; floors to 0m when <= 0."""
+    if seconds_left <= 0:
+        return "0m"
+    days = seconds_left // 86400
+    hours = (seconds_left % 86400) // 3600
+    minutes = (seconds_left % 3600) // 60
+    parts: List[str] = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    parts.append(f"{minutes}m")
+    return " ".join(parts)
+
+
+# -----------------------------------------------------------------------------
+# Internal helpers — lender positions flow
+# -----------------------------------------------------------------------------
+
+def _fetch_lender_positions(factory_contract: str, lender_account_id: str) -> List[ActiveRequest]:
+    """Fetch active lending positions for a lender from the web API."""
+    api_url = f"{firebase_vaults_api()}/view_lender_positions"
+    resp = requests.get(
+        api_url,
+        params={"factory_id": factory_contract, "lender_id": lender_account_id},
+        timeout=10,
+        headers={"Content-Type": "application/json"},
+    )
+    resp.raise_for_status()
+    return cast(List[ActiveRequest], resp.json())
+
+
+def _enrich_positions(positions: List[ActiveRequest]) -> List[Dict[str, Any]]:
+    """Attach timing fields to raw positions for sorting and display."""
+    enriched: List[Dict[str, Any]] = []
+    now_seconds = int(time.time())
+    for pos in positions:
+        req = pos.get("liquidity_request")
+        acc = pos.get("accepted_offer")
+        if not req or not acc:
+            continue
+        accepted_seconds = _firestore_ts_to_seconds(acc.get("accepted_at"))
+        duration_seconds = int(req.get("duration", 0))
+        expiry_seconds: Optional[int] = (
+            accepted_seconds + duration_seconds if accepted_seconds is not None else None
+        )
+        seconds_left: Optional[int] = (
+            (expiry_seconds - now_seconds) if isinstance(expiry_seconds, int) else None
+        )
+        enriched.append(
+            {
+                "raw": pos,
+                "accepted_seconds": accepted_seconds,
+                "expiry_secs": expiry_seconds,
+                "seconds_left": seconds_left,
+                "expired": isinstance(seconds_left, int) and seconds_left <= 0,
+            }
+        )
+    return enriched
+
+
+def _sort_enriched(enriched: List[Dict[str, Any]]) -> None:
+    """Sort in-place: expired first, then soonest to expire."""
+    def sort_key(e: Dict[str, Any]) -> tuple[int, int]:
+        expired_rank = 0 if e.get("expired") else 1
+        expiry_val = e.get("expiry_secs") or 0
+        return (expired_rank, int(expiry_val))
+
+    enriched.sort(key=sort_key)
+
+
+def _format_position_entry(near, explorer_url: str, entry: Dict[str, Any]) -> str:
+    """Return a formatted block for one position entry, including quick action and liquidation info when eligible."""
+    pos = cast(Dict[str, Any], entry["raw"])  # guaranteed present
+    req = cast(Dict[str, Any], pos["liquidity_request"])  # guaranteed present
+    acc = cast(Dict[str, Any], pos["accepted_offer"])    # guaranteed present
+
+    token_meta = get_token_metadata_by_contract(str(req["token"]))
+    decimals = int(token_meta["decimals"])
+    symbol = token_meta["symbol"]
+
+    principal = Decimal(str(req["amount"])) / Decimal(10 ** decimals)
+    interest = Decimal(str(req["interest"])) / Decimal(10 ** decimals)
+    total_due = principal + interest
+    collateral_near = Decimal(str(req["collateral"])) / YOCTO_FACTOR
+    duration_days = int(req["duration"]) // 86400
+
+    apr_text = "N/A"
+    try:
+        if principal > 0 and duration_days > 0:
+            apr_val = (interest / principal) * Decimal(365) / Decimal(duration_days) * 100
+            apr_text = f"{_format_number(apr_val, 2)}%"
+    except Exception:
+        apr_text = "N/A"
+
+    acc_ts = acc.get("accepted_at")
+    if isinstance(acc_ts, dict):
+        accepted_text = format_firestore_timestamp(cast(Dict[str, Any], acc_ts))
+    elif isinstance(acc_ts, str):
+        accepted_text = format_firestore_timestamp(acc_ts)
+    else:
+        accepted_text = "Unknown"
+    expiry_secs = entry.get("expiry_secs")
+    expires_text = _epoch_seconds_to_utc(int(expiry_secs)) if isinstance(expiry_secs, int) else "Unknown"
+    seconds_left = entry.get("seconds_left")
+    time_left_text = _format_time_left(int(seconds_left)) if isinstance(seconds_left, int) else "Unknown"
+    claims_eligible_text = "Yes" if entry.get("expired") else "No"
+    action_hint = (
+        "Process claims to repay in NEAR." if entry.get("expired") else "Wait; borrower may repay in token."
+    )
+
+    # Liquidation status (best-effort) and quick action
+    liquidation_block = ""
+    if entry.get("expired"):
+        try:
+            state_resp = run_coroutine(near.view(pos['id'], "get_vault_state", {}))
+            state = getattr(state_resp, "result", None)
+            if isinstance(state, dict):
+                liq = state.get("liquidation")
+                chain_req = state.get("liquidity_request") or {}
+                try:
+                    total_collateral_near = Decimal(str(chain_req.get("collateral"))) / YOCTO_FACTOR
+                except Exception:
+                    total_collateral_near = collateral_near
+                if liq:
+                    liquidated_near = Decimal(str(liq.get("liquidated", "0"))) / YOCTO_FACTOR
+                    liquidation_block = (
+                        "  • Liquidation: In progress\n"
+                        + f"  • Liquidated so far: `{_format_number(liquidated_near, 5)}` NEAR of `{_format_number(total_collateral_near, 5)}` NEAR\n"
+                    )
+                else:
+                    liquidation_block = "  • Liquidation: Not started\n"
+            else:
+                liquidation_block = "  • Liquidation: Unknown\n"
+        except Exception:
+            liquidation_block = "  • Liquidation: Unknown\n"
+
+    quick_action = (
+        f"  • Quick action: `Process claims on {pos['id']}`\n" if entry.get("expired") else ""
+    )
+
+    return (
+        f"- Vault: [`{pos['id']}`]({explorer_url}/accounts/{pos['id']})\n"
+        f"  • Borrower: `{pos.get('owner', 'unknown')}`\n"
+        f"  • Token: {symbol} (`{req['token']}`)\n"
+        f"  • Principal: `{_format_number(principal)}` {symbol} • Interest: `{_format_number(interest)}` {symbol} • Total: `{_format_number(total_due)}` {symbol}\n"
+        f"  • Collateral: `{_format_number(collateral_near)}` NEAR\n"
+        f"  • APR: {apr_text}\n"
+        f"  • Duration: `{duration_days} days`\n"
+        f"  • Accepted: `{accepted_text}` • Expires: `{expires_text}` • Time left: `{time_left_text}`\n"
+        f"  • Claims eligible: `{claims_eligible_text}`\n"
+        f"  • Action: {action_hint}\n"
+        f"{liquidation_block}"
+        f"{quick_action}"
+        "\n"
+    )
     
 
 def request_liquidity(
@@ -319,67 +510,42 @@ def accept_liquidity_request(vault_id: str) -> None:
 
 def view_lender_positions() -> None:
     """
-    Display all vaults where the current user is the lender (i.e., has an active accepted_offer).
+    Show all vaults where the current user is the lender with an active loan.
+
+    Uses the web API (sudostake_web_near) for efficiency:
+    - GET `${FIREBASE_API}/view_lender_positions?factory_id=...&lender_id=...`
+    - Returns a list of entries with `liquidity_request` and `accepted_offer`.
+    - Accepts Firestore‐style timestamps for `accepted_at`.
     """
-    
+
     env = get_env()
+    near = get_near()
     logger = get_logger()
-    
-    # 'headless' or None
-    if signing_mode() != "headless":
-        env.add_reply(
-            "⚠️ No signing keys available. Add `NEAR_ACCOUNT_ID` and "
-            "`NEAR_PRIVATE_KEY` to secrets, then try again."
-        )
-        return
-    
+
     try:
         lender_id = account_id()
+        if not lender_id:
+            env.add_reply(
+                "⚠️ No account ID available. Set `NEAR_ACCOUNT_ID` in secrets, then try again."
+            )
+            return
+
         factory_id = get_factory_contract()
-        
-        # Construct the query to Firebase API
-        url = f"{firebase_vaults_api()}/view_lender_positions"
-        response = requests.get(
-            url,
-            params={"factory_id": factory_id, "lender_id": lender_id},
-            timeout=10,
-            headers={"Content-Type": "application/json"},
-        )
-        response.raise_for_status()
-        
-        vaults: List[ActiveRequest] = response.json()
-        if not vaults:
+        positions = _fetch_lender_positions(factory_id, lender_id)
+        if not positions:
             env.add_reply("✅ You have no active lending positions.")
             return
-        
-        message = f"**📄 Active Lending Positions for `{lender_id}`**\n\n"
-        for v in vaults:
-            state = v.get("accepted_offer")
-            req = v.get("liquidity_request")
-            if not req or not state:
-                # Skip malformed entries
-                continue
-            token_meta = get_token_metadata_by_contract(req["token"])
-            decimals = token_meta["decimals"]
-            symbol = token_meta["symbol"]
-            
-            amount = (Decimal(req["amount"]) / Decimal(10 ** decimals)).quantize(Decimal(1))
-            interest = (Decimal(req["interest"]) / Decimal(10 ** decimals)).quantize(Decimal(1))
-            collateral = (Decimal(req["collateral"]) / YOCTO_FACTOR).quantize(Decimal(1))
-            duration_days = req["duration"] // 86400
-            
-            message += (
-                f"- 🏦 `{v['id']}`\n"
-                f"  • Token: `{req['token']}`\n"
-                f"  • Amount: `{amount}` {symbol}\n"
-                f"  • Interest: `{interest}` {symbol}\n"
-                f"  • Duration: `{duration_days} days`\n"
-                f"  • Collateral: `{collateral}` NEAR\n"
-                f"  • Accepted At: `{format_firestore_timestamp(state['accepted_at'])}`\n\n"
-            )
-            
-        env.add_reply(message)
-        
+
+        enriched = _enrich_positions(positions)
+        _sort_enriched(enriched)
+
+        explorer = get_explorer_url()
+        blocks: List[str] = [f"**📄 Active Lending Positions for `{lender_id}`**\n"]
+        for entry in enriched:
+            blocks.append(_format_position_entry(near, explorer, entry))
+
+        env.add_reply("".join(blocks))
+
     except Exception as e:
         logger.warning("view_lender_positions failed: %s", e, exc_info=True)
         env.add_reply(f"❌ Failed to fetch lending positions\n\n**Error:** {e}")
