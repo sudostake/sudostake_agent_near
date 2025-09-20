@@ -82,12 +82,12 @@ def _firestore_ts_to_seconds(ts: object) -> Optional[int]:
     if isinstance(ts, dict) and "_seconds" in ts:
         try:
             return int(ts["_seconds"])  # type: ignore[index]
-        except Exception:
+        except (ValueError, TypeError):
             return None
     if isinstance(ts, (int, str)):
         try:
             return int(ts)
-        except Exception:
+        except (ValueError, TypeError):
             return None
     return None
 
