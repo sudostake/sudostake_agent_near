@@ -122,8 +122,8 @@ def test_wrapper_forwarding(monkeypatch, mock_setup):
     monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
     monkeypatch.setattr(token_registration, "register_account_with_token", spy)
 
-    token_registration.register_vault_with_token("vault-9.factory.testnet", "usdc.testnet")
-    token_registration.register_me_with_token("usdc.testnet")
+    token_registration.register_vault_with_token("vault-9.factory.testnet")
+    token_registration.register_me_with_token()
 
     assert "vault-9.factory.testnet" in called
     assert "me" in called

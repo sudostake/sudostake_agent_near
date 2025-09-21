@@ -124,27 +124,21 @@ def register_account_with_token(account: str) -> None:
 
 
 # Backwards-compatible wrappers (not registered as tools)
-def register_vault_with_token(vault_id: str, token_contract: str) -> None:
+def register_vault_with_token(vault_id: str) -> None:
     """
     Register the given vault account with the NEP-141 token contract.
 
-    Notes:
-    - `token_contract` parameter is accepted for compatibility but ignored.
-    - The actual token contract is resolved from TOKEN_REGISTRY for the
-      current `NEAR_NETWORK` (defaults to USDC per network).
+    The actual token contract is resolved from TOKEN_REGISTRY for the
+    current NEAR_NETWORK (defaults to USDC per network).
     """
-    # token_contract param ignored; we resolve from registry
     register_account_with_token(vault_id)
 
 
-def register_me_with_token(token_contract: str) -> None:
+def register_me_with_token() -> None:
     """
     Register the current headless account with the NEP-141 token contract.
 
-    Notes:
-    - `token_contract` parameter is accepted for compatibility but ignored.
-    - The actual token contract is resolved from TOKEN_REGISTRY for the
-      current `NEAR_NETWORK` (defaults to USDC per network).
+    The actual token contract is resolved from TOKEN_REGISTRY for the
+    current NEAR_NETWORK (defaults to USDC per network).
     """
-    # token_contract param ignored; we resolve from registry
     register_account_with_token("me")
