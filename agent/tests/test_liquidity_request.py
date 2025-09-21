@@ -316,8 +316,10 @@ def test_view_pending_requests_error(monkeypatch, mock_setup):
 
 def test_accept_liquidity_request_success(monkeypatch, mock_setup):
     """Should accept the liquidity request and show confirmation message."""
-    
+
     env, mock_near = mock_setup
+    # Require headless signing for accept
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     
     # Mock vault state with valid liquidity request and no accepted offer
     vault_state = {
@@ -380,8 +382,10 @@ def test_accept_liquidity_request_success(monkeypatch, mock_setup):
 
 def test_accept_liquidity_request_no_request(monkeypatch, mock_setup):
     """Should show error if no liquidity request exists."""
-    
+
     env, mock_near = mock_setup
+    # Require headless signing for accept
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     
     # Mock vault state with no liquidity request
     mock_near.view = AsyncMock(return_value=MagicMock(result={
@@ -403,8 +407,10 @@ def test_accept_liquidity_request_no_request(monkeypatch, mock_setup):
 
 def test_accept_liquidity_request_already_accepted(monkeypatch, mock_setup):
     """Should show error if a request has already been accepted."""
-    
+
     env, mock_near = mock_setup
+    # Require headless signing for accept
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     
     # Mock vault state with accepted offer present
     mock_near.view = AsyncMock(return_value=MagicMock(result={
@@ -437,8 +443,10 @@ def test_accept_liquidity_request_already_accepted(monkeypatch, mock_setup):
 
 def test_accept_liquidity_request_transfer_failure(monkeypatch, mock_setup):
     """Should show error if the ft_transfer_call fails with contract panic."""
-    
+
     env, mock_near = mock_setup
+    # Require headless signing for accept
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     
     # Mock vault state with valid liquidity request
     mock_near.view = AsyncMock(return_value=MagicMock(result={
@@ -493,8 +501,10 @@ def test_accept_liquidity_request_transfer_failure(monkeypatch, mock_setup):
 
 def test_accept_liquidity_request_contract_not_deployed(monkeypatch, mock_setup):
     """Should show error if the vault contract is not deployed or returns no state."""
-    
+
     env, mock_near = mock_setup
+    # Require headless signing for accept
+    monkeypatch.setattr(helpers, "_signing_mode", "headless")
     
     # Simulate view call returning nothing
     mock_near.view = AsyncMock(return_value=MagicMock(result=None))

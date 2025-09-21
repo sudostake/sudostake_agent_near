@@ -17,11 +17,13 @@ from helpers import (
     run_coroutine, 
     get_explorer_url, 
     log_contains_event,
+    find_event_data,
     get_failure_message_from_tx_status,
     firebase_vaults_api,
     account_id,
     signing_mode,
     format_firestore_timestamp,
+    format_near_timestamp,
 )
 
 # Re-export for tests that monkeypatch tools.liquidity_request.index_vault_to_firebase
@@ -93,10 +95,14 @@ def _epoch_seconds_to_utc(secs: int) -> str:
 def _firestore_ts_to_seconds(ts: object) -> Optional[int]:
     """Extract seconds from a Firestore-style timestamp or primitive value."""
     if isinstance(ts, dict) and "_seconds" in ts:
-        try:
-            return int(ts["_seconds"])  # type: ignore[index]
-        except (ValueError, TypeError):
-            return None
+        # Be strict about accepted types to satisfy type checkers
+        raw = ts["_seconds"]  # type: ignore[index]
+        if isinstance(raw, (int, str)):
+            try:
+                return int(raw)
+            except (ValueError, TypeError):
+                return None
+        return None
     if isinstance(ts, (int, str)):
         try:
             return int(ts)
@@ -148,7 +154,8 @@ def _enrich_positions(positions: List[ActiveRequest]) -> List[Dict[str, Any]]:
         if not req or not acc:
             continue
         accepted_seconds = _firestore_ts_to_seconds(acc.get("accepted_at"))
-        duration_seconds = int(req.get("duration", 0))
+        dur_raw = cast(Dict[str, Any], req).get("duration")
+        duration_seconds = int(dur_raw) if isinstance(dur_raw, (int, str)) else 0
         expiry_seconds: Optional[int] = (
             accepted_seconds + duration_seconds if accepted_seconds is not None else None
         )
@@ -171,8 +178,9 @@ def _sort_enriched(enriched: List[Dict[str, Any]]) -> None:
     """Sort in-place: expired first, then soonest to expire."""
     def sort_key(e: Dict[str, Any]) -> Tuple[int, int]:
         expired_rank = 0 if e.get("expired") else 1
-        expiry_val = e.get("expiry_secs") or 0
-        return (expired_rank, int(expiry_val))
+        expiry_val = e.get("expiry_secs")
+        expiry_int = int(expiry_val) if isinstance(expiry_val, (int, str)) else 0
+        return (expired_rank, expiry_int)
 
     enriched.sort(key=sort_key)
 
@@ -191,7 +199,8 @@ def _format_position_entry(explorer_url: str, entry: Dict[str, Any], preloaded_s
     interest = Decimal(str(req["interest"])) / Decimal(10 ** decimals)
     total_due = principal + interest
     collateral_near = Decimal(str(req["collateral"])) / YOCTO_FACTOR
-    duration_days = int(req["duration"]) // 86400
+    dur_val = req.get("duration") if isinstance(req, dict) else None
+    duration_days = (int(dur_val) // 86400) if isinstance(dur_val, (int, str)) else 0
 
     apr_text = "N/A"
     try:
@@ -209,9 +218,9 @@ def _format_position_entry(explorer_url: str, entry: Dict[str, Any], preloaded_s
     else:
         accepted_text = "Unknown"
     expiry_secs = entry.get("expiry_secs")
-    expires_text = _epoch_seconds_to_utc(int(expiry_secs)) if isinstance(expiry_secs, int) else "Unknown"
+    expires_text = _epoch_seconds_to_utc(expiry_secs) if isinstance(expiry_secs, int) else "Unknown"
     seconds_left = entry.get("seconds_left")
-    time_left_text = _format_time_left(int(seconds_left)) if isinstance(seconds_left, int) else "Unknown"
+    time_left_text = _format_time_left(seconds_left) if isinstance(seconds_left, int) else "Unknown"
     claims_eligible_text = "Yes" if entry.get("expired") else "No"
     action_hint = (
         "Process claims to repay in NEAR." if entry.get("expired") else "Wait; borrower may repay in token."
@@ -318,22 +327,56 @@ def _map_request_liquidity_panic_message(failure: Dict[str, Any]) -> Optional[st
 
     return None
 
-    return (
-        f"- Vault: [`{pos['id']}`]({explorer_url}/accounts/{pos['id']})\n"
-        f"  • Borrower: `{pos.get('owner', 'unknown')}`\n"
-        f"  • Token: {symbol} (`{req['token']}`)\n"
-        f"  • Principal: `{_format_number(principal)}` {symbol} • Interest: `{_format_number(interest)}` {symbol} • Total: `{_format_number(total_due)}` {symbol}\n"
-        f"  • Collateral: `{_format_number(collateral_near)}` NEAR\n"
-        f"  • APR: {apr_text}\n"
-        f"  • Duration: `{duration_days} days`\n"
-        f"  • Accepted: `{accepted_text}` • Expires: `{expires_text}` • Time left: `{time_left_text}`\n"
-        f"  • Claims eligible: `{claims_eligible_text}`\n"
-        f"  • Action: {action_hint}\n"
-        f"{liquidation_block}"
-        f"{quick_action}"
-        "\n"
-    )
-    
+def _map_accept_liquidity_failure_message(
+    failure: Dict[str, Any],
+    *,
+    vault_id: str,
+    token_contract: str,
+) -> Optional[str]:
+    """Return a user-friendly mapping for common accept-liquidity failures.
+
+    Note: Most accept failures are "soft" (tokens refunded via ft_on_transfer)
+    and won't appear as a transaction Failure. This mapper is for hard failures
+    at the FT layer (insufficient balance, receiver not registered, etc.).
+    """
+    s = _failure_text(failure)
+
+    # Missing 1 yocto on FT call (we attach it, but cover for safety)
+    if "Requires attached deposit of exactly 1 yoctoNEAR" in s:
+        return (
+            "Reason: ft_transfer_call requires exactly 1 yoctoNEAR deposit.\n"
+            "Tip: This tool attaches it automatically; please retry."
+        )
+
+    # Receiver (vault) not registered in FT storage
+    if (
+        "is not registered" in s
+        or "The account is not registered" in s
+        or "storage" in s and "register" in s
+    ):
+        return (
+            "Reason: The vault is not registered with the token contract.\n"
+            f"Tip: Call `storage_deposit` on `{token_contract}` for account `{vault_id}` "
+            "with sufficient NEAR (often ~0.00125 NEAR), then try again."
+        )
+
+    # Insufficient FT balance
+    if (
+        "insufficient" in s.lower()
+        or "not enough" in s.lower() and "balance" in s.lower()
+        or "Cannot decrement" in s
+    ):
+        return "Reason: Insufficient token balance to cover the requested amount."
+
+    # Contract or method not found
+    if "MethodNotFound" in s or "ContractNotFound" in s or "does not exist" in s:
+        return (
+            "Reason: Token contract or method not found.\n"
+            f"Tip: Ensure `{token_contract}` is correct and implements NEP-141."
+        )
+
+    return None
+
 
 def request_liquidity(
     vault_id: str,
@@ -502,7 +545,8 @@ def view_pending_liquidity_requests() -> None:
             amount = Decimal(str(lr.get("amount", "0"))) / Decimal(10 ** decimals)
             interest = Decimal(str(lr.get("interest", "0"))) / Decimal(10 ** decimals)
             collateral = Decimal(str(lr.get("collateral", "0"))) / YOCTO_FACTOR
-            duration_days = int(lr.get("duration", 0)) // 86400
+            dur_raw = lr.get("duration")
+            duration_days = (int(dur_raw) // 86400) if isinstance(dur_raw, (int, str)) else 0
             term_text = f"{duration_days}d"
 
             # Estimate APR (simple) like the web view
@@ -548,28 +592,44 @@ def accept_liquidity_request(vault_id: str) -> None:
     env = get_env()
     near = get_near()
     logger: Logger = get_logger()
-    
+
     try:
-        response = run_coroutine(near.view(vault_id, "get_vault_state", {}))
-        if not response or not hasattr(response, "result") or response.result is None:
-            env.add_reply(f"❌ No data returned for `{vault_id}`. Is the contract deployed?")
-            return
-        
-        # Get the result state from the response
-        state = response.result
-        
-        req = state.get("liquidity_request")
-        offer = state.get("accepted_offer")
-        
-        if offer or not req:
+        # Require headless (private-key) signing like request_liquidity
+        if signing_mode() != "headless":
             env.add_reply(
-                f"❌ `{vault_id}` has no active liquidity request or it has already been accepted."
+                "⚠️ No signing keys available. Add `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` to secrets, then try again."
             )
             return
-        # req is present beyond this point
-        assert req is not None
-        req = cast(LiquidityRequest, req)
 
+        # Proceed (tests/mocks may not have an account ID).
+        lender_id = account_id()
+
+        # Fetch on-chain state to validate preconditions and gather exact terms
+        resp_before = run_coroutine(near.view(vault_id, "get_vault_state", {}))
+        if not resp_before or not hasattr(resp_before, "result") or resp_before.result is None:
+            env.add_reply(f"❌ No data returned for `{vault_id}`. Is the contract deployed?")
+            return
+
+        state_before = cast(Dict[str, Any], resp_before.result)
+        req = cast(Optional[LiquidityRequest], state_before.get("liquidity_request"))
+        offer = state_before.get("accepted_offer")
+        owner = state_before.get("owner")
+
+        if not req:
+            env.add_reply(f"❌ `{vault_id}` has no active liquidity request to accept.")
+            return
+        if offer:
+            env.add_reply(
+                f"❌ `{vault_id}` has no active liquidity request to accept. The request has already been accepted by another lender."
+            )
+            return
+        if isinstance(owner, str) and isinstance(lender_id, str) and lender_id == owner:
+            env.add_reply(
+                "❌ Vault owner cannot fulfill their own request. Ask another account to accept the request."
+            )
+            return
+
+        # Prepare ft_transfer_call payload from the exact on-chain terms
         msg_payload: AcceptLiquidityMsg = {
             "action": "AcceptLiquidityRequest",
             "token": req["token"],
@@ -578,11 +638,33 @@ def accept_liquidity_request(vault_id: str) -> None:
             "collateral": req["collateral"],
             "duration": req["duration"],
         }
-        
+
         token_contract = req["token"]
         token_amount = req["amount"]
-        
-        # Send ft_transfer_call
+
+        # Best-effort balance sanity check (NEP-141 standard). Ignore failures.
+        if isinstance(lender_id, str) and lender_id:
+            try:
+                bal_resp = run_coroutine(
+                    near.view(token_contract, "ft_balance_of", {"account_id": lender_id})
+                )
+                if hasattr(bal_resp, "result") and bal_resp.result is not None:
+                    res_val = bal_resp.result
+                    have = int(res_val) if isinstance(res_val, (int, str)) else int(str(res_val))
+                    need = int(str(token_amount))
+                    if have < need:
+                        env.add_reply(
+                            "❌ Insufficient token balance to accept this request.\n"
+                            f"- Token: `{token_contract}`\n"
+                            f"- Needed (minimal units): `{need}`\n"
+                            f"- Available: `{have}`"
+                        )
+                        return
+            except Exception:
+                # Non-standard token or view failure — continue; FT layer will enforce.
+                pass
+
+        # Execute ft_transfer_call with 1 yoctoNEAR
         tx: TransactionResult = run_coroutine(
             near.call(
                 contract_id=token_contract,
@@ -593,38 +675,64 @@ def accept_liquidity_request(vault_id: str) -> None:
                     "msg": json.dumps(msg_payload),
                 },
                 gas=GAS_300_TGAS,
-                amount=YOCTO_1,          # 1 yoctoNEAR deposit
+                amount=YOCTO_1,
             )
         )
-        
+
+        # Map hard failures (FT contract level)
         failure = get_failure_message_from_tx_status(tx.status)
         if failure:
-            env.add_reply(
-                f"❌ Failed to accept liquidity request\n\n> {json.dumps(failure, indent=2)}"
-            )
+            mapped = _map_accept_liquidity_failure_message(failure, vault_id=vault_id, token_contract=token_contract)
+            if mapped:
+                env.add_reply(
+                    "❌ Failed to accept liquidity request\n" + mapped
+                )
+            else:
+                env.add_reply(
+                    "❌ Failed to accept liquidity request\n\n" + f"> {json.dumps(failure, indent=2)}"
+                )
             return
-        
-        # Index the vault via backend API
+
+        # Success path: transaction executed without Failure.
+
+        # Index accepted vault via backend API (best effort)
         try:
             helpers.index_vault_to_firebase(vault_id, tx.transaction.hash)
         except Exception as e:
             logger.warning("index_vault_to_firebase failed: %s", e, exc_info=True)
-        
-        # Get the token metadata
+
+        # Human-friendly amounts
         token_meta = get_token_metadata_by_contract(token_contract)
-        decimals = token_meta["decimals"]
+        decimals = int(token_meta["decimals"])
         symbol = token_meta["symbol"]
-        token_amount_val = (Decimal(token_amount) / Decimal(10 ** decimals)).quantize(Decimal(1))
+        principal = Decimal(str(req["amount"])) / Decimal(10 ** decimals)
+        interest_amt = Decimal(str(req["interest"])) / Decimal(10 ** decimals)
+        collateral_near = Decimal(str(req["collateral"])) / YOCTO_FACTOR
+        dur_val3 = req.get("duration") if isinstance(req, dict) else None
+        duration_days = (int(dur_val3) // 86400) if isinstance(dur_val3, (int, str)) else 0
+
+        apr_text = "N/A"
+        try:
+            if principal > 0 and duration_days > 0:
+                apr_val = (interest_amt / principal) * Decimal(365) / Decimal(duration_days) * 100
+                apr_text = f"{_format_number(apr_val, 2)}%"
+        except (InvalidOperation, DivisionByZero, Overflow, ZeroDivisionError):
+            apr_text = "N/A"
+
+        accepted_ts_text = "on-chain"
 
         explorer = get_explorer_url()
         env.add_reply(
             f"✅ **Accepted Liquidity Request**\n"
             f"- 🏦 Vault: [`{vault_id}`]({explorer}/accounts/{vault_id})\n"
             f"- 🪙 Token: `{token_contract}`\n"
-            f"- 💵 Amount: `{token_amount_val}` {symbol}\n"
+            f"- 💵 Principal: `{_format_number(principal, 0)}` {symbol} • Interest: `{_format_number(interest_amt, 0)}` {symbol} • APR: {apr_text}\n"
+            f"- 💰 Collateral: `{_format_number(collateral_near, 0)}` NEAR\n"
+            f"- ⏳ Term: `{duration_days} days`\n"
+            f"- 🕒 Accepted: `{accepted_ts_text}`\n"
             f"- 🔗 Tx: [{tx.transaction.hash}]({explorer}/transactions/{tx.transaction.hash})"
         )
-    
+
     except Exception as e:
         logger.error("accept_liquidity_request failed: %s", e, exc_info=True)
         env.add_reply(f"❌ Error while accepting liquidity request:\n\n**{e}**")
