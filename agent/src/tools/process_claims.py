@@ -35,14 +35,7 @@ from helpers import (
 from . import active_loan as active_loan_mod
 
 
-# Backward-compatible gas/yocto constants: fall back if missing in deployed constants
-try:  # pragma: no cover
-    from constants import GAS_300_TGAS as _GAS_300_TGAS, YOCTO_1 as _YOCTO_1
-except Exception:
-    _GAS_300_TGAS = 300_000_000_000_000
-    _YOCTO_1 = 1
-GAS_300_TGAS: int = _GAS_300_TGAS
-YOCTO_1: int = _YOCTO_1
+from constants import GAS_300_TGAS, YOCTO_1
 
 # -----------------------------------------------------------------------------
 # Types

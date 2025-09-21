@@ -13,11 +13,7 @@ from helpers import (
     get_explorer_url,
 )
 from py_near.models import TransactionResult
-try:  # pragma: no cover
-    from constants import GAS_300_TGAS as _GAS_300_TGAS
-except Exception:
-    _GAS_300_TGAS = 300_000_000_000_000
-GAS_300_TGAS: int = _GAS_300_TGAS
+from constants import GAS_300_TGAS
 
 
 def mint_vault() -> None:
