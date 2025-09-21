@@ -109,6 +109,8 @@ def register_account_with_token(account: str) -> None:
             near.call(
                 contract_id=token_contract,
                 method_name="storage_deposit",
+                # `registration_only: True` ensures only storage registration is performed
+                # without pre-funding any token balance beyond the required storage deposit.
                 args={"account_id": acct, "registration_only": True},
                 gas=GAS_300_TGAS,
                 amount=deposit,
