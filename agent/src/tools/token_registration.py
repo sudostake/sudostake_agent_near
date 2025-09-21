@@ -20,6 +20,9 @@ from runtime_constants import GAS_300_TGAS
 
 # Default storage-deposit fallback (~0.00125 NEAR), when token doesn't expose
 # storage_balance_bounds or returns an invalid response.
+# Rationale: 0.00125 NEAR is commonly sufficient for account registration on
+# NEP-141 tokens per NEP-145 guidance and widespread practice. It serves as a
+# safe default when a contract does not publish storage_balance_bounds.
 DEFAULT_STORAGE_DEPOSIT_NEAR: Decimal = Decimal("0.00125")
 DEFAULT_STORAGE_DEPOSIT_YOCTO: int = int((DEFAULT_STORAGE_DEPOSIT_NEAR * YOCTO_FACTOR).quantize(Decimal("1")))
 
