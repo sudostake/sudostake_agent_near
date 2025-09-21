@@ -30,14 +30,7 @@ from helpers import (
 index_vault_to_firebase = helpers.index_vault_to_firebase  # type: ignore[assignment]
 
 from py_near.models import TransactionResult
-# Backward-compatible gas/yocto constants: fall back if missing in deployed constants
-try:  # pragma: no cover
-    from constants import GAS_300_TGAS as _GAS_300_TGAS, YOCTO_1 as _YOCTO_1
-except Exception:
-    _GAS_300_TGAS = 300_000_000_000_000
-    _YOCTO_1 = 1
-GAS_300_TGAS: int = _GAS_300_TGAS
-YOCTO_1: int = _YOCTO_1
+from constants import GAS_300_TGAS, YOCTO_1
 
 # Define the structure of the liquidity request
 class LiquidityRequest(TypedDict):
@@ -356,8 +349,7 @@ def _map_accept_liquidity_failure_message(
     ):
         return (
             "Reason: The vault is not registered with the token contract.\n"
-            f"Tip: Call `storage_deposit` on `{token_contract}` for account `{vault_id}` "
-            "with sufficient NEAR (often ~0.00125 NEAR), then try again."
+            f"Tip: Use the token registration tool to register `{vault_id}` on `{token_contract}`, then try again."
         )
 
     # Insufficient FT balance
