@@ -82,7 +82,7 @@ def transfer_near_to_vault(vault_id: str, amount: str) -> None:
     except Exception as e:
         logger.error(
             "transfer_near_to_vault error → %s (%s NEAR): %s",
-            vault_id, amount, e, exc_info=True
+            vault_id, amount_str, e, exc_info=True
         )
         # Optional connectivity hint (DNS/RPC outages or wrong network)
         hint = None
@@ -98,5 +98,5 @@ def transfer_near_to_vault(vault_id: str, amount: str) -> None:
             )
 
         env.add_reply(
-            f"❌ Transfer failed for `{vault_id}` ({amount} NEAR)\n\n**Error:** {e}" + (hint or "")
+            f"❌ Transfer failed for `{vault_id}` ({amount_str} NEAR)\n\n**Error:** {e}" + (hint or "")
         )
