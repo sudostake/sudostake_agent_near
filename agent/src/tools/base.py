@@ -13,7 +13,8 @@ from . import (
     summary,
     liquidity_request,
     active_loan,
-    process_claims
+    process_claims,
+    token_registration,
 )
 
 # Register all tools here
@@ -48,6 +49,9 @@ def register_tools(env: Environment, near: NearClient) -> list[MCPTool]:
         liquidity_request.view_lender_positions,
         active_loan.repay_loan,
         process_claims.process_claims,
+        token_registration.register_account_with_token,
+        token_registration.register_vault_with_token,
+        token_registration.register_me_with_token,
         docs.query_sudostake_docs
     ):
         registry.register_tool(tool)

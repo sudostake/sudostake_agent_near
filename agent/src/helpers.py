@@ -7,7 +7,7 @@ from typing import Awaitable, TypeVar, Optional, Any, List, Dict, cast
 from near_types import NearClient
 from decimal import Decimal
 from datetime import datetime, timezone
-from constants import NANOSECONDS_PER_SECOND
+from runtime_constants import NANOSECONDS_PER_SECOND
 
 # Type‐var for our coroutine runner
 T = TypeVar("T")

@@ -10,15 +10,7 @@ from typing import List, cast
 from datetime import timedelta
 from logging import Logger
 from .context import get_env, get_near, get_logger
-from constants import NANOSECONDS_PER_SECOND
-# Backward-compatible gas/yocto constants: fall back if missing in deployed constants
-try:  # pragma: no cover - trivial import guard
-    from constants import GAS_300_TGAS as _GAS_300_TGAS, YOCTO_1 as _YOCTO_1
-except Exception:  # older registry builds may not export these
-    _GAS_300_TGAS = 300_000_000_000_000
-    _YOCTO_1 = 1
-GAS_300_TGAS: int = _GAS_300_TGAS
-YOCTO_1: int = _YOCTO_1
+from runtime_constants import NANOSECONDS_PER_SECOND, GAS_300_TGAS, YOCTO_1
 from helpers import (
     get_factory_contract,
     USDC_FACTOR,
@@ -107,6 +99,10 @@ def show_help_menu() -> None:
         • Show me all pending liquidity requests  
         • Accept liquidity request opened by <vault>  
         • Show me all my active lending positions  
+        
+        __Token Registration__
+        • Register <account> with token  
+          (defaults to the network's USDC token if not specified)  
         
         __Active Loan__
         • Repay loan on <vault>  
