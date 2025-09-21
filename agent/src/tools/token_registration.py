@@ -24,7 +24,15 @@ from runtime_constants import GAS_300_TGAS
 # NEP-141 tokens per NEP-145 guidance and widespread practice. It serves as a
 # safe default when a contract does not publish storage_balance_bounds.
 DEFAULT_STORAGE_DEPOSIT_NEAR: Decimal = Decimal("0.00125")
-DEFAULT_STORAGE_DEPOSIT_YOCTO: int = int((DEFAULT_STORAGE_DEPOSIT_NEAR * YOCTO_FACTOR).quantize(Decimal("1")))
+
+
+def _default_storage_deposit_yocto() -> int:
+    """Compute default storage deposit in yoctoNEAR lazily.
+
+    Using YOCTO_FACTOR at call time avoids hard-coding derived values at
+    module import time and keeps the calculation local to where it's used.
+    """
+    return int((DEFAULT_STORAGE_DEPOSIT_NEAR * YOCTO_FACTOR).quantize(Decimal("1")))
 
 
 def _storage_balance_of(token_contract: str, acct: str) -> Optional[Dict[str, Any]]:
@@ -52,7 +60,7 @@ def _storage_min_deposit(token_contract: str) -> int:
     except Exception:
         pass
     # Fallback commonly sufficient for NEP-145
-    return DEFAULT_STORAGE_DEPOSIT_YOCTO
+    return _default_storage_deposit_yocto()
 
 
 def register_account_with_token(account: str) -> None:
