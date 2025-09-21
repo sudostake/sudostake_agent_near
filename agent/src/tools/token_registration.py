@@ -123,7 +123,7 @@ def register_account_with_token(account: str) -> None:
         env.add_reply(f"❌ Failed to register account with token\n\n**Error:** {e}")
 
 
-# Backwards-compatible wrappers (not registered as tools)
+# Backwards-compatible wrappers for token registration
 def register_vault_with_token(vault_id: str) -> None:
     """
     Register the given vault account with the NEP-141 token contract.
