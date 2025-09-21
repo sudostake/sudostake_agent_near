@@ -81,8 +81,17 @@ def register_account_with_token(account: str) -> None:
 
     try:
         # Resolve the canonical token contract for this network (default: USDC)
-        token_meta = get_token_metadata("usdc")
-        token_contract = token_meta["contract"]
+        try:
+            token_meta = get_token_metadata("usdc")
+            token_contract = token_meta["contract"]
+        except Exception as meta_exc:
+            logger.warning("Failed to resolve token metadata: %s", meta_exc, exc_info=True)
+            env.add_reply(
+                "❌ Failed to resolve token metadata for 'usdc'.\n\n"
+                f"**Error:** {meta_exc}\n"
+                "Please check your token registry configuration and network connectivity."
+            )
+            return
 
         # Short-circuit when already registered
         bal = _storage_balance_of(token_contract, acct)
