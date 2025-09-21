@@ -66,7 +66,9 @@ def transfer_near_to_vault(vault_id: str, amount: str) -> None:
         explorer = get_explorer_url()
         gas_burnt = getattr(getattr(tx, "transaction_outcome", None), "gas_burnt", None)
         gas_line = (
-            f"\n⛽ Gas Burned: {gas_burnt / 1e12:.2f} Tgas" if isinstance(gas_burnt, (int, float)) else ""
+            f"\n⛽ Gas Burned: {gas_burnt / 1e12:.2f} Tgas"
+            if (isinstance(gas_burnt, (int, float)) and gas_burnt > 0)
+            else ""
         )
         
         env.add_reply(
@@ -85,7 +87,7 @@ def transfer_near_to_vault(vault_id: str, amount: str) -> None:
         # Optional connectivity hint (DNS/RPC outages or wrong network)
         hint = None
         if is_rpc_connectivity_error(e):
-            want_testnet = ".testnet" in vault_id
+            want_testnet = vault_id.endswith(".testnet")
             suggested_network = "testnet" if want_testnet else "mainnet"
             current_net = os.getenv("NEAR_NETWORK") or "unset"
             hint = (
