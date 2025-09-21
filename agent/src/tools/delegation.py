@@ -3,7 +3,7 @@ import json
 from decimal import Decimal
 from logging import Logger
 from .context import get_env, get_near, get_logger
-from helpers import YOCTO_FACTOR, signing_mode, run_coroutine, get_failure_message_from_tx_status, get_explorer_url
+from helpers import YOCTO_FACTOR, signing_mode, run_coroutine, get_failure_message_from_tx_status, get_explorer_url, find_event_data
 from runtime_constants import GAS_300_TGAS, YOCTO_1
 from py_near.models import TransactionResult
 
@@ -47,7 +47,10 @@ def delegate(vault_id: str, validator: str, amount: str) -> None:
                 amount=YOCTO_1,          # 1 yoctoNEAR deposit
             )
         )
-        
+        # Compute common details once for reuse in branches
+        tx_hash  = response.transaction.hash
+        explorer = get_explorer_url()
+
         # Inspect execution outcome for Failure / Panic
         failure = get_failure_message_from_tx_status(response.status)
         if failure:
@@ -57,10 +60,21 @@ def delegate(vault_id: str, validator: str, amount: str) -> None:
             )
             return
 
+        # Inspect async result via contract events
+        evt_failed = find_event_data(response.logs, "delegate_failed")
+        if evt_failed is not None:
+            err = evt_failed.get("error", "delegate_failed")
+            env.add_reply(
+                "❌ Delegate failed during async staking call.\n\n"
+                f"Vault [`{vault_id}`]({explorer}/accounts/{vault_id}) → "
+                f"`{validator}` for **{amount} NEAR**.\n"
+                f"Reason: `{err}`\n"
+                f"🔹 Tx: [{tx_hash}]({explorer}/transactions/{tx_hash})"
+            )
+            return
+
         # Extract only the primitive fields we care about
-        tx_hash  = response.transaction.hash
         gas_tgas = response.transaction_outcome.gas_burnt / 1e12
-        explorer = get_explorer_url()
 
         env.add_reply(
             "✅ **Delegation Successful**\n"
@@ -132,7 +146,7 @@ def undelegate(vault_id: str, validator: str, amount: str) -> None:
                f"> {json.dumps(failure, indent=2)}"
             )
             return
-        
+
         # Extract only the primitive fields we care about
         tx_hash  = response.transaction.hash
         gas_tgas = response.transaction_outcome.gas_burnt / 1e12

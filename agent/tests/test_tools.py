@@ -126,6 +126,73 @@ def test_delegate_no_credentials(monkeypatch, mock_setup):
     assert "can't sign" in warning.lower()
 
 
+def test_delegate_async_failure_event(monkeypatch, mock_setup):
+    """
+    delegate() should report failure when contract emits delegate_failed event
+    even if the outer transaction succeeded (async callback failure).
+    """
+
+    (dummy_env, mock_near) = mock_setup
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="tx_fail_123"),
+        transaction_outcome=MagicMock(gas_burnt=300_000_000_000_000),
+        logs=[
+            'EVENT_JSON:{"event":"delegate_failed",'
+            '"data":{"vault":"vault-0.testnet","validator":"validator.near",'
+            '"amount":"1000000000000000000000000","error":"deposit_and_stake failed"}}'
+        ],
+        status={}
+    ))
+
+    # Enable headless mode and set explorer network
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+
+    delegation.delegate("vault-0.testnet", "validator.near", "1")
+
+    dummy_env.add_reply.assert_called_once()
+    msg = dummy_env.add_reply.call_args[0][0].lower()
+    assert "delegate failed" in msg
+    assert "tx_fail_123" in msg
+
+
+def test_delegate_contract_panic(monkeypatch, mock_setup):
+    """
+    delegate() should surface contract panic messages from status.Failure.
+    """
+
+    (dummy_env, mock_near) = mock_setup
+
+    mock_near.call = AsyncMock(return_value=MagicMock(
+        transaction=MagicMock(hash="panic_tx_789"),
+        transaction_outcome=MagicMock(gas_burnt=305_000_000_000_000),
+        logs=[],
+        status={
+            "Failure": {
+                "ActionError": {
+                    "kind": {
+                        "FunctionCallError": {
+                            "ExecutionError": "Only the vault owner can delegate stake"
+                        }
+                    }
+                }
+            }
+        }
+    ))
+
+    # Enable headless mode and set explorer network
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+
+    delegation.delegate("vault-0.testnet", "validator.near", "1")
+
+    dummy_env.add_reply.assert_called_once()
+    msg = dummy_env.add_reply.call_args[0][0]
+    assert "contract panic" in msg.lower()
+    assert "Only the vault owner can delegate stake" in msg
+
+
 # ───────────────── mint_vault tests ─────────────────
 def test_mint_vault_headless(monkeypatch, mock_setup):
     """
