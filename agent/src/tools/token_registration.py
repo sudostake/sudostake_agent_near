@@ -13,6 +13,7 @@ from helpers import (
     account_id,
     get_failure_message_from_tx_status,
 )
+from token_registry import get_token_metadata
 
 from py_near.models import TransactionResult
 from constants import GAS_300_TGAS
@@ -51,7 +52,7 @@ def _storage_min_deposit(token_contract: str) -> int:
     return DEFAULT_STORAGE_DEPOSIT_YOCTO
 
 
-def register_account_with_token(account: str, token_contract: str) -> None:
+def register_account_with_token(account: str) -> None:
     """
     Register an account with a NEP-141 token via `storage_deposit`.
 
@@ -79,6 +80,10 @@ def register_account_with_token(account: str, token_contract: str) -> None:
         return
 
     try:
+        # Resolve the canonical token contract for this network (default: USDC)
+        token_meta = get_token_metadata("usdc")
+        token_contract = token_meta["contract"]
+
         # Short-circuit when already registered
         bal = _storage_balance_of(token_contract, acct)
         if isinstance(bal, dict):
@@ -120,8 +125,10 @@ def register_account_with_token(account: str, token_contract: str) -> None:
 
 # Backwards-compatible wrappers (not registered as tools)
 def register_vault_with_token(vault_id: str, token_contract: str) -> None:
-    register_account_with_token(vault_id, token_contract)
+    # token_contract param ignored; we resolve from registry
+    register_account_with_token(vault_id)
 
 
 def register_me_with_token(token_contract: str) -> None:
-    register_account_with_token("me", token_contract)
+    # token_contract param ignored; we resolve from registry
+    register_account_with_token("me")

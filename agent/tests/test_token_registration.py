@@ -12,7 +12,7 @@ def test_register_requires_headless(monkeypatch, mock_setup):
     # Not headless → should show keys hint and return
     monkeypatch.setattr(helpers, "_signing_mode", "interactive", raising=False)
 
-    token_registration.register_account_with_token("me", "usdc.testnet")
+    token_registration.register_account_with_token("me")
 
     env.add_reply.assert_called_once()
     msg = env.add_reply.call_args[0][0]
@@ -25,7 +25,7 @@ def test_register_missing_account_id_when_me(monkeypatch, mock_setup):
     monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
     monkeypatch.setattr(token_registration, "account_id", lambda: None)
 
-    token_registration.register_account_with_token("me", "usdc.testnet")
+    token_registration.register_account_with_token("me")
 
     env.add_reply.assert_called_once()
     msg = env.add_reply.call_args[0][0]
@@ -38,7 +38,7 @@ def test_register_already_registered(monkeypatch, mock_setup):
     monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
     monkeypatch.setattr(token_registration, "_storage_balance_of", lambda t, a: {"total": "1"})
 
-    token_registration.register_account_with_token("vault-xyz.testnet", "usdc.testnet")
+    token_registration.register_account_with_token("vault-xyz.testnet")
 
     env.add_reply.assert_called_once()
     msg = env.add_reply.call_args[0][0]
@@ -60,7 +60,7 @@ def test_register_success_with_bounds(monkeypatch, mock_setup):
         status={"SuccessValue": ""},
     ))
 
-    token_registration.register_account_with_token("alice.testnet", "usdc.testnet")
+    token_registration.register_account_with_token("alice.testnet")
 
     # Verify we attached the min deposit from bounds
     assert mock_near.call.call_args.kwargs["amount"] == 100
@@ -83,7 +83,7 @@ def test_register_success_with_fallback_deposit(monkeypatch, mock_setup):
         status={"SuccessValue": ""},
     ))
 
-    token_registration.register_account_with_token("vault-123.testnet", "usdc.testnet")
+    token_registration.register_account_with_token("vault-123.testnet")
 
     fallback = int((Decimal("0.00125") * helpers.YOCTO_FACTOR).quantize(Decimal("1")))
     assert mock_near.call.call_args.kwargs["amount"] == fallback
@@ -104,7 +104,7 @@ def test_register_tx_failure(monkeypatch, mock_setup):
         status=failure_exec_error("Some storage_deposit error"),
     ))
 
-    token_registration.register_account_with_token("vault-abc.testnet", "usdc.testnet")
+    token_registration.register_account_with_token("vault-abc.testnet")
 
     env.add_reply.assert_called_once()
     msg = env.add_reply.call_args[0][0]
@@ -116,8 +116,8 @@ def test_wrapper_forwarding(monkeypatch, mock_setup):
     env, _ = mock_setup
 
     called = []
-    def spy(acct, token):
-        called.append((acct, token))
+    def spy(acct):
+        called.append(acct)
 
     monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
     monkeypatch.setattr(token_registration, "register_account_with_token", spy)
@@ -125,5 +125,5 @@ def test_wrapper_forwarding(monkeypatch, mock_setup):
     token_registration.register_vault_with_token("vault-9.factory.testnet", "usdc.testnet")
     token_registration.register_me_with_token("usdc.testnet")
 
-    assert ("vault-9.factory.testnet", "usdc.testnet") in called
-    assert ("me", "usdc.testnet") in called
+    assert "vault-9.factory.testnet" in called
+    assert "me" in called

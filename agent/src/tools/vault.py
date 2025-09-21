@@ -101,7 +101,8 @@ def show_help_menu() -> None:
         • Show me all my active lending positions  
         
         __Token Registration__
-        • Register <account> with token contract <token>  
+        • Register <account> with token  
+          (defaults to the network's USDC token if not specified)  
         
         __Active Loan__
         • Repay loan on <vault>  

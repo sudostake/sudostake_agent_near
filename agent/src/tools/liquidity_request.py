@@ -349,7 +349,7 @@ def _map_accept_liquidity_failure_message(
     ):
         return (
             "Reason: The vault is not registered with the token contract.\n"
-            f"Tip: Use the token registration tool to register `{vault_id}` on `{token_contract}`, then try again."
+            f"Tip: Use the token registration tool to register `{vault_id}`, then try again."
         )
 
     # Insufficient FT balance
