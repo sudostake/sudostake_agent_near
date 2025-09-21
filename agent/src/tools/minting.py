@@ -13,7 +13,7 @@ from helpers import (
     get_explorer_url,
 )
 from py_near.models import TransactionResult
-from constants import GAS_300_TGAS
+from runtime_constants import GAS_300_TGAS
 
 
 def mint_vault() -> None:

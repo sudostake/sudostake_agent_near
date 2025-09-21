@@ -10,7 +10,7 @@ from typing import List, cast
 from datetime import timedelta
 from logging import Logger
 from .context import get_env, get_near, get_logger
-from constants import NANOSECONDS_PER_SECOND, GAS_300_TGAS, YOCTO_1
+from runtime_constants import NANOSECONDS_PER_SECOND, GAS_300_TGAS, YOCTO_1
 from helpers import (
     get_factory_contract,
     USDC_FACTOR,

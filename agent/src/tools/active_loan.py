@@ -18,7 +18,7 @@ import json
 from logging import Logger
 from .context import get_env, get_near, get_logger
 from py_near.models import TransactionResult
-from constants import GAS_300_TGAS, YOCTO_1
+from runtime_constants import GAS_300_TGAS, YOCTO_1
 from helpers import (
     run_coroutine,
     get_explorer_url,

@@ -30,7 +30,7 @@ from helpers import (
 index_vault_to_firebase = helpers.index_vault_to_firebase  # type: ignore[assignment]
 
 from py_near.models import TransactionResult
-from constants import GAS_300_TGAS, YOCTO_1
+from runtime_constants import GAS_300_TGAS, YOCTO_1
 
 # Define the structure of the liquidity request
 class LiquidityRequest(TypedDict):

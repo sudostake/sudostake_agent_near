@@ -4,7 +4,7 @@ from decimal import Decimal
 from logging import Logger
 from .context import get_env, get_near, get_logger
 from helpers import YOCTO_FACTOR, signing_mode, run_coroutine, get_failure_message_from_tx_status, get_explorer_url
-from constants import GAS_300_TGAS, YOCTO_1
+from runtime_constants import GAS_300_TGAS, YOCTO_1
 from py_near.models import TransactionResult
 
 def delegate(vault_id: str, validator: str, amount: str) -> None:

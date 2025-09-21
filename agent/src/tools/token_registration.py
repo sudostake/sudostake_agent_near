@@ -16,7 +16,7 @@ from helpers import (
 from token_registry import get_token_metadata
 
 from py_near.models import TransactionResult
-from constants import GAS_300_TGAS
+from runtime_constants import GAS_300_TGAS
 
 # Default storage-deposit fallback (~0.00125 NEAR), when token doesn't expose
 # storage_balance_bounds or returns an invalid response.
@@ -125,10 +125,26 @@ def register_account_with_token(account: str) -> None:
 
 # Backwards-compatible wrappers (not registered as tools)
 def register_vault_with_token(vault_id: str, token_contract: str) -> None:
+    """
+    Register the given vault account with the NEP-141 token contract.
+
+    Notes:
+    - `token_contract` parameter is accepted for compatibility but ignored.
+    - The actual token contract is resolved from TOKEN_REGISTRY for the
+      current `NEAR_NETWORK` (defaults to USDC per network).
+    """
     # token_contract param ignored; we resolve from registry
     register_account_with_token(vault_id)
 
 
 def register_me_with_token(token_contract: str) -> None:
+    """
+    Register the current headless account with the NEP-141 token contract.
+
+    Notes:
+    - `token_contract` parameter is accepted for compatibility but ignored.
+    - The actual token contract is resolved from TOKEN_REGISTRY for the
+      current `NEAR_NETWORK` (defaults to USDC per network).
+    """
     # token_contract param ignored; we resolve from registry
     register_account_with_token("me")

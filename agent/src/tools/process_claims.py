@@ -33,9 +33,7 @@ from helpers import (
 # this allows tests that monkeypatch tools.active_loan.format_near_timestamp
 # to continue to affect this tool without changes.
 from . import active_loan as active_loan_mod
-
-
-from constants import GAS_300_TGAS, YOCTO_1
+from runtime_constants import GAS_300_TGAS, YOCTO_1
 
 # -----------------------------------------------------------------------------
 # Types
