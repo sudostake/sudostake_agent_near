@@ -47,7 +47,10 @@ def delegate(vault_id: str, validator: str, amount: str) -> None:
                 amount=YOCTO_1,          # 1 yoctoNEAR deposit
             )
         )
-        
+        # Compute common details once for reuse in branches
+        tx_hash  = response.transaction.hash
+        explorer = get_explorer_url()
+
         # Inspect execution outcome for Failure / Panic
         failure = get_failure_message_from_tx_status(response.status)
         if failure:
@@ -61,8 +64,6 @@ def delegate(vault_id: str, validator: str, amount: str) -> None:
         evt_failed = find_event_data(response.logs, "delegate_failed")
         if evt_failed is not None:
             err = evt_failed.get("error", "delegate_failed")
-            tx_hash = response.transaction.hash
-            explorer = get_explorer_url()
             env.add_reply(
                 "❌ Delegate failed during async staking call.\n\n"
                 f"Vault [`{vault_id}`]({explorer}/accounts/{vault_id}) → "
@@ -73,9 +74,7 @@ def delegate(vault_id: str, validator: str, amount: str) -> None:
             return
 
         # Extract only the primitive fields we care about
-        tx_hash  = response.transaction.hash
         gas_tgas = response.transaction_outcome.gas_burnt / 1e12
-        explorer = get_explorer_url()
 
         env.add_reply(
             "✅ **Delegation Successful**\n"
