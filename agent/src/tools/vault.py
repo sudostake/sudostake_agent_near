@@ -81,7 +81,7 @@ def show_help_menu() -> None:
         • mint vault  
         • view state for <vault>  
         • view available balance in <vault>  
-        • transfer <amount> to <vault>  
+        • transfer <amount> NEAR to <vault>  
         • withdraw <amount> from <vault>  
         • withdraw <amount> from <vault> to <receiver>  
         • transfer ownership of <vault> to <new_owner>  
@@ -101,8 +101,10 @@ def show_help_menu() -> None:
         • Show me all my active lending positions  
         
         __Token Registration__
-        • Register <account> with token  
-          (defaults to the network's USDC token if not specified)  
+        • Register <account> with USDC token  
+        • Register me with token  
+        • Register <vault> with token  
+          (uses the network's default USDC token)  
         
         __Active Loan__
         • Repay loan on <vault>  

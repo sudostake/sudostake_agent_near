@@ -319,6 +319,46 @@ def test_mint_vault_missing_event(monkeypatch, mock_setup):
     assert "vault minting failed" in err_msg
 
 
+def test_mint_vault_insufficient_balance_human_message(monkeypatch, mock_setup):
+    """
+    When the underlying call raises a dict-shaped error with balance/cost/signer_id,
+    mint_vault() should render a human-friendly insufficient balance message with
+    account, available, required, and shortfall in NEAR units.
+    """
+
+    (dummy_env, mock_near) = mock_setup
+
+    # Simulate py-near raising an exception with a dict payload
+    error_payload = {
+        "balance": "3866212507061458757961781",          # yoctoNEAR
+        "cost": "10030119671803578800000000",            # yoctoNEAR
+        "signer_id": "usdclender.testnet",
+    }
+
+    async def _raise_call(*args, **kwargs):  # type: ignore[return-type]
+        raise Exception(error_payload)
+
+    # AsyncMock that raises our custom exception
+    from unittest.mock import AsyncMock
+    mock_near.call = AsyncMock(side_effect=_raise_call)
+
+    # Enable headless mode and set network
+    monkeypatch.setattr(helpers, "_signing_mode", "headless", raising=False)
+    monkeypatch.setenv("NEAR_NETWORK", "testnet")
+
+    # Execute
+    minting.mint_vault()
+
+    # Validate a single, friendly message
+    dummy_env.add_reply.assert_called_once()
+    msg = dummy_env.add_reply.call_args[0][0]
+    assert "Insufficient NEAR to mint vault" in msg
+    assert "usdclender.testnet" in msg
+    assert "Available:" in msg
+    assert "Required:" in msg
+    assert "Shortfall:" in msg
+
+
 def test_view_main_balance_headless(monkeypatch, mock_setup):
     """Head-less mode: tool should return the correct NEAR and USDC balances."""
     (dummy_env, mock_near) = mock_setup
