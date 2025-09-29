@@ -92,5 +92,50 @@ def mint_vault() -> None:
         )
     
     except Exception as e:
+        # Try to render a more human-friendly message for insufficient balance
+        try:
+            # py-near or downstream libs may raise a dict as the first arg
+            details = None
+            if isinstance(e, dict):  # rare, but cheap to check
+                details = e
+            elif getattr(e, "args", None):
+                first = e.args[0]
+                if isinstance(first, dict):
+                    details = first
+                else:
+                    # Attempt safe parse from a stringified Python dict
+                    s = str(first)
+                    if "balance" in s and "cost" in s:
+                        import ast
+                        try:
+                            parsed = ast.literal_eval(s)
+                            if isinstance(parsed, dict):
+                                details = parsed
+                        except Exception:
+                            details = None
+
+            if isinstance(details, dict) and "balance" in details and "cost" in details:
+                bal_raw = details.get("balance")
+                cost_raw = details.get("cost")
+                signer_val = details.get("signer_id")
+                signer = str(signer_val) if signer_val is not None else "unknown"
+
+                if isinstance(bal_raw, (int, str)) and isinstance(cost_raw, (int, str)):
+                    bal = Decimal(str(int(bal_raw))) / YOCTO_FACTOR
+                    req = Decimal(str(int(cost_raw))) / YOCTO_FACTOR
+                    short = max(Decimal(0), req - bal)
+                    env.add_reply(
+                        "❌ Insufficient NEAR to mint vault.\n"
+                        f"- 👤 Account: `{signer}`\n"
+                        f"- Available: **{bal:.5f} NEAR**\n"
+                        f"- Required: **{req:.5f} NEAR**\n"
+                        f"- Shortfall: **{short:.5f} NEAR**\n\n"
+                        "The minting fee is 10 NEAR plus gas. Top up and retry."
+                    )
+                    return
+        except Exception:
+            # Fall through to generic handling if pretty formatting fails
+            pass
+
         logger.error("mint_vault error: %s", e, exc_info=True)
         env.add_reply(f"❌ Vault minting failed\n\n**Error:** {e}")
